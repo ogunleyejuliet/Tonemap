@@ -1,0 +1,130 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>M3 Variable Generator — preview</title>
+<style>/*__APP_CSS__*/</style>
+</head>
+<body>
+<header class="app-header">
+  <h1>M3 Variable Generator — preview</h1>
+  <button type="button" id="close">Close</button>
+</header>
+<main class="layout">
+  <section class="inputs" aria-label="Inputs">
+    <h2>Inputs</h2>
+    <p class="status" id="status" role="alert"></p>
+
+    <div class="field">
+      <label for="f-primary">Primary</label>
+      <div class="row">
+        <input type="text" id="f-primary" value="#6750A4" spellcheck="false" autocomplete="off" placeholder="#6750A4">
+        <input type="color" id="f-primary-picker" value="#6750a4" aria-label="Primary color picker">
+      </div>
+      <p class="tone-line" id="primary-tone">Measured tone: —</p>
+      <p class="note" id="primary-note" hidden></p>
+      <p class="err" id="f-primary-error"></p>
+    </div>
+
+    <div class="field">
+      <label for="f-secondary-method">Secondary method</label>
+      <select id="f-secondary-method">
+        <option value="material">Material default</option>
+        <option value="analogous">Analogous (+30)</option>
+        <option value="complementary">Complementary (+180)</option>
+        <option value="triadic">Triadic (+120)</option>
+        <option value="split-complementary">Split complementary (+150)</option>
+        <option value="monochromatic">Monochromatic</option>
+        <option value="custom">Custom</option>
+      </select>
+    </div>
+    <div class="field">
+      <label for="f-secondary-hex">Secondary hex</label>
+      <input type="text" id="f-secondary-hex" spellcheck="false" autocomplete="off" placeholder="#000000">
+      <p class="note" id="f-secondary-hex-note" hidden></p>
+      <p class="err" id="f-secondary-hex-error"></p>
+    </div>
+
+    <div class="field">
+      <label for="f-tertiary-method">Tertiary method</label>
+      <select id="f-tertiary-method">
+        <option value="material">Material default</option>
+        <option value="analogous">Analogous (+30)</option>
+        <option value="complementary">Complementary (+180)</option>
+        <option value="triadic">Triadic (+120)</option>
+        <option value="split-complementary">Split complementary (+150)</option>
+        <option value="monochromatic">Monochromatic</option>
+        <option value="custom">Custom</option>
+      </select>
+    </div>
+    <div class="field">
+      <label for="f-tertiary-hex">Tertiary hex</label>
+      <input type="text" id="f-tertiary-hex" spellcheck="false" autocomplete="off" placeholder="#000000">
+      <p class="note" id="f-tertiary-hex-note" hidden></p>
+      <p class="err" id="f-tertiary-hex-error"></p>
+    </div>
+
+    <div class="field">
+      <label for="f-neutral">Neutral</label>
+      <input type="text" id="f-neutral" spellcheck="false" autocomplete="off">
+      <p class="hint">Auto-derived, editable.</p>
+      <p class="err" id="f-neutral-error"></p>
+    </div>
+    <div class="field">
+      <label for="f-neutral-variant">Neutral variant</label>
+      <input type="text" id="f-neutral-variant" spellcheck="false" autocomplete="off">
+      <p class="hint">Auto-derived, editable.</p>
+      <p class="err" id="f-neutral-variant-error"></p>
+    </div>
+    <div class="field">
+      <label for="f-error">Error</label>
+      <input type="text" id="f-error" spellcheck="false" autocomplete="off">
+      <p class="err" id="f-error-error"></p>
+    </div>
+    <div class="field">
+      <label for="f-warning">Warning</label>
+      <input type="text" id="f-warning" spellcheck="false" autocomplete="off">
+      <p class="err" id="f-warning-error"></p>
+    </div>
+    <div class="field">
+      <label for="f-success">Success</label>
+      <input type="text" id="f-success" spellcheck="false" autocomplete="off">
+      <p class="err" id="f-success-error"></p>
+    </div>
+
+    <div class="check-row">
+      <input type="checkbox" id="f-autofix" checked>
+      <label for="f-autofix">Auto-fix text contrast</label>
+    </div>
+    <button type="button" id="f-reset">Reset to derived values</button>
+  </section>
+
+  <section class="preview" aria-label="Preview">
+    <h2>Palettes</h2>
+    <div id="palettes"></div>
+    <p class="swatch-detail" id="swatch-detail">Click a swatch to see its hex.</p>
+
+    <h2>Roles</h2>
+    <table id="roles-table">
+      <thead>
+        <tr><th scope="col">Role</th><th scope="col">Light</th><th scope="col">Dark</th></tr>
+      </thead>
+      <tbody id="roles-body"></tbody>
+    </table>
+
+    <h2>Contrast</h2>
+    <table id="contrast-table">
+      <thead>
+        <tr><th scope="col">Text</th><th scope="col">Background</th><th scope="col">Light</th><th scope="col">Dark</th></tr>
+      </thead>
+      <tbody id="contrast-body"></tbody>
+    </table>
+
+    <h2 id="changes-heading">Text changes</h2>
+    <ul class="changes" id="changes"></ul>
+  </section>
+</main>
+<script>/*__APP_JS__*/</script>
+</body>
+</html>
