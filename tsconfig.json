@@ -1,11 +1,12 @@
 {
   "compilerOptions": {
-    "target": "es2020",
-    "lib": ["es2020", "DOM"],
+    "target": "es2017",
+    "lib": ["es2017", "DOM"],
     "module": "ESNext",
     "moduleResolution": "Bundler",
     "skipLibCheck": true,
     "strict": true,
+    "noEmit": true,
     "typeRoots": [
       "./node_modules/@types",
       "./node_modules/@figma"

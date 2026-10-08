@@ -57,9 +57,23 @@ function buildHtmlFromResult(result) {
   );
 }
 
+async function buildCodeTs() {
+  await esbuild.build({
+    entryPoints: [join(root, "code.ts")],
+    bundle: true,
+    platform: "browser",
+    target: "es2017",
+    minify: false,
+    outfile: join(root, "code.js"),
+    logLevel: "warning",
+  });
+  console.log("code.js written");
+}
+
 async function buildOnce() {
   const result = await esbuild.build(esbuildOptions(true));
   buildHtmlFromResult(result);
+  await buildCodeTs();
 }
 
 function cleanStrayJs() {
@@ -76,7 +90,7 @@ function cleanStrayJs() {
 }
 
 function runTscOnce() {
-  execSync("npx tsc -p tsconfig.json", { cwd: root, stdio: "inherit" });
+  execSync("npx tsc -p tsconfig.json --noEmit", { cwd: root, stdio: "inherit" });
   cleanStrayJs();
 }
 

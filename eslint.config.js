@@ -13,6 +13,11 @@ module.exports = tseslint.config(
     plugins: {
       '@figma/figma-plugins': figmaPlugin,
     },
+    languageOptions: {
+      parserOptions: {
+        project: './tsconfig.json',
+      },
+    },
     rules: {
       ...figmaPlugin.configs.recommended.rules,
       // allow underscore-prefixing of unused variables
@@ -27,6 +32,6 @@ module.exports = tseslint.config(
     },
   },
   {
-    ignores: ['code.js', 'dist', 'eslint.config.js', 'ui.html', 'scripts/**'],
+    ignores: ['code.js', 'dist', 'eslint.config.js', 'ui.html', 'scripts/**', '**/*.test.ts', 'vitest.config.ts'],
   },
 )

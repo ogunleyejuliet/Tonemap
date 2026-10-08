@@ -123,6 +123,21 @@ button {
 
 button:hover { filter: brightness(0.97); }
 
+.btn-primary {
+  background: var(--accent);
+  color: #ffffff;
+  border-color: transparent;
+  font-weight: 600;
+  margin-top: 8px;
+  width: 100%;
+  padding: 8px 12px;
+}
+
+.btn-primary:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
 .err {
   color: var(--danger);
   font-size: 11px;

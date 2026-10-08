@@ -492,6 +492,35 @@ function resetAll(): void {
   render();
 }
 
+function onCreateClick(): void {
+  const createBtn = el<HTMLButtonElement>("f-create");
+  createBtn.disabled = true;
+  const status = el("status");
+  status.style.color = "var(--text)";
+  status.textContent = "Creating variables in Figma...";
+
+  try {
+    const sys = buildColorSystem(currentInputs(), {
+      secondary: state.secondaryMethod,
+      tertiary: state.tertiaryMethod,
+      autoFixContrast: state.autoFix,
+    });
+
+    const payload = {
+      palettes: sys.palettes,
+      roles: sys.roles,
+      roleRefs: sys.roleRefs,
+    };
+
+    parent.postMessage({ pluginMessage: { type: "create-system", payload } }, "*");
+  } catch (err) {
+    createBtn.disabled = false;
+    status.style.color = "var(--danger)";
+    status.textContent =
+      "Could not create system: " + (err instanceof Error ? err.message : String(err));
+  }
+}
+
 function init(): void {
   el<HTMLInputElement>("f-primary").value = state.primary;
   refreshDerived();
@@ -529,8 +558,25 @@ function init(): void {
     render();
   });
   el<HTMLButtonElement>("f-reset").addEventListener("click", resetAll);
+  el<HTMLButtonElement>("f-create").addEventListener("click", onCreateClick);
   el<HTMLButtonElement>("close").addEventListener("click", () => {
     parent.postMessage({ pluginMessage: { type: "close" } }, "*");
+  });
+
+  window.addEventListener("message", (event) => {
+    const msg = event.data?.pluginMessage;
+    if (msg && msg.type === "create-result") {
+      const createBtn = el<HTMLButtonElement>("f-create");
+      createBtn.disabled = false;
+      const res = msg.result;
+      const status = el("status");
+      status.textContent = res.message;
+      if (res.success) {
+        status.style.color = "var(--text)";
+      } else {
+        status.style.color = "var(--danger)";
+      }
+    }
   });
 }
 
