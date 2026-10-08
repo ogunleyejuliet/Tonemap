@@ -98,7 +98,17 @@
       <label for="f-autofix">Auto-fix text contrast</label>
     </div>
     <button type="button" id="f-reset">Reset to derived values</button>
-    <button type="button" id="f-create" class="btn-primary">Create variables in Figma</button>
+    <div class="action-buttons" style="display: flex; flex-direction: column; gap: 8px; margin-top: 12px;">
+      <button type="button" id="f-create" class="btn-primary">Create variables in Figma</button>
+      <button type="button" id="f-update" class="btn-primary" disabled>Update variables in Figma</button>
+    </div>
+
+    <div id="update-preview-box" class="field" hidden style="margin-top: 16px; border-top: 1px solid var(--border); padding-top: 12px;">
+      <h3>Update Preview</h3>
+      <p class="hint" id="update-summary" style="font-weight: 600; margin-bottom: 8px;"></p>
+      <ul class="changes" id="update-diff-list"></ul>
+      <button type="button" id="f-apply" class="btn-primary" disabled style="margin-top: 12px;">Apply changes</button>
+    </div>
   </section>
 
   <section class="preview" aria-label="Preview">

@@ -492,9 +492,79 @@ function resetAll(): void {
   render();
 }
 
+function currentInputsState(): Record<string, unknown> {
+  return {
+    primary: state.primary,
+    secondaryMethod: state.secondaryMethod,
+    tertiaryMethod: state.tertiaryMethod,
+    secondaryHex: state.hex.secondary,
+    tertiaryHex: state.hex.tertiary,
+    neutral: state.hex.neutral,
+    neutralVariant: state.hex.neutralVariant,
+    error: state.hex.error,
+    warning: state.hex.warning,
+    success: state.hex.success,
+    autoFix: state.autoFix,
+  };
+}
+
+function restoreSavedInputs(inputs: Record<string, unknown>): void {
+  if (typeof inputs.primary === "string" && inputs.primary) {
+    state.primary = inputs.primary;
+    el<HTMLInputElement>("f-primary").value = inputs.primary;
+  }
+  if (typeof inputs.secondaryMethod === "string") {
+    state.secondaryMethod = inputs.secondaryMethod as Method;
+    el<HTMLSelectElement>("f-secondary-method").value = inputs.secondaryMethod;
+  }
+  if (typeof inputs.tertiaryMethod === "string") {
+    state.tertiaryMethod = inputs.tertiaryMethod as Method;
+    el<HTMLSelectElement>("f-tertiary-method").value = inputs.tertiaryMethod;
+  }
+  if (typeof inputs.secondaryHex === "string" && inputs.secondaryHex) {
+    state.hex.secondary = inputs.secondaryHex;
+  }
+  if (typeof inputs.tertiaryHex === "string" && inputs.tertiaryHex) {
+    state.hex.tertiary = inputs.tertiaryHex;
+  }
+  (["neutral", "neutralVariant", "error", "warning", "success"] as const).forEach((key) => {
+    if (typeof inputs[key] === "string" && inputs[key]) {
+      state.hex[key] = inputs[key] as string;
+      state.touched.add(key);
+    }
+  });
+  if (typeof inputs.autoFix === "boolean") {
+    state.autoFix = inputs.autoFix;
+    el<HTMLInputElement>("f-autofix").checked = inputs.autoFix;
+  }
+  refreshDerived();
+  render();
+}
+
+function setSystemExistsUI(exists: boolean): void {
+  const createBtn = el<HTMLButtonElement>("f-create");
+  const updateBtn = el<HTMLButtonElement>("f-update");
+  const applyBtn = el<HTMLButtonElement>("f-apply");
+
+  if (exists) {
+    createBtn.disabled = true;
+    createBtn.textContent = "A system already exists. Use Update.";
+    updateBtn.disabled = false;
+    applyBtn.disabled = true;
+  } else {
+    createBtn.disabled = false;
+    createBtn.textContent = "Create variables in Figma";
+    updateBtn.disabled = true;
+    applyBtn.disabled = true;
+  }
+}
+
 function onCreateClick(): void {
   const createBtn = el<HTMLButtonElement>("f-create");
+  const updateBtn = el<HTMLButtonElement>("f-update");
   createBtn.disabled = true;
+  updateBtn.disabled = true;
+
   const status = el("status");
   status.style.color = "var(--text)";
   status.textContent = "Creating variables in Figma...";
@@ -512,12 +582,110 @@ function onCreateClick(): void {
       roleRefs: sys.roleRefs,
     };
 
-    parent.postMessage({ pluginMessage: { type: "create-system", payload } }, "*");
+    parent.postMessage(
+      {
+        pluginMessage: {
+          type: "create-system",
+          payload,
+          inputs: currentInputsState(),
+        },
+      },
+      "*",
+    );
   } catch (err) {
     createBtn.disabled = false;
     status.style.color = "var(--danger)";
     status.textContent =
       "Could not create system: " + (err instanceof Error ? err.message : String(err));
+  }
+}
+
+function onUpdateClick(): void {
+  const updateBtn = el<HTMLButtonElement>("f-update");
+  const createBtn = el<HTMLButtonElement>("f-create");
+  const applyBtn = el<HTMLButtonElement>("f-apply");
+
+  updateBtn.disabled = true;
+  createBtn.disabled = true;
+  applyBtn.disabled = true;
+
+  const status = el("status");
+  status.style.color = "var(--text)";
+  status.textContent = "Calculating update preview...";
+
+  try {
+    const sys = buildColorSystem(currentInputs(), {
+      secondary: state.secondaryMethod,
+      tertiary: state.tertiaryMethod,
+      autoFixContrast: state.autoFix,
+    });
+
+    const payload = {
+      palettes: sys.palettes,
+      roles: sys.roles,
+      roleRefs: sys.roleRefs,
+    };
+
+    parent.postMessage(
+      {
+        pluginMessage: {
+          type: "preview-update",
+          payload,
+          inputs: currentInputsState(),
+        },
+      },
+      "*",
+    );
+  } catch (err) {
+    updateBtn.disabled = false;
+    status.style.color = "var(--danger)";
+    status.textContent =
+      "Could not preview update: " + (err instanceof Error ? err.message : String(err));
+  }
+}
+
+function onApplyClick(): void {
+  const updateBtn = el<HTMLButtonElement>("f-update");
+  const createBtn = el<HTMLButtonElement>("f-create");
+  const applyBtn = el<HTMLButtonElement>("f-apply");
+
+  updateBtn.disabled = true;
+  createBtn.disabled = true;
+  applyBtn.disabled = true;
+
+  const status = el("status");
+  status.style.color = "var(--text)";
+  status.textContent = "Applying updates in Figma...";
+
+  try {
+    const sys = buildColorSystem(currentInputs(), {
+      secondary: state.secondaryMethod,
+      tertiary: state.tertiaryMethod,
+      autoFixContrast: state.autoFix,
+    });
+
+    const payload = {
+      palettes: sys.palettes,
+      roles: sys.roles,
+      roleRefs: sys.roleRefs,
+    };
+
+    parent.postMessage(
+      {
+        pluginMessage: {
+          type: "apply-update",
+          payload,
+          inputs: currentInputsState(),
+        },
+      },
+      "*",
+    );
+  } catch (err) {
+    updateBtn.disabled = false;
+    applyBtn.disabled = false;
+    status.style.color = "var(--danger)";
+    status.textContent =
+      "Could not apply update: " + (err instanceof Error ? err.message : String(err));
   }
 }
 
@@ -559,23 +727,100 @@ function init(): void {
   });
   el<HTMLButtonElement>("f-reset").addEventListener("click", resetAll);
   el<HTMLButtonElement>("f-create").addEventListener("click", onCreateClick);
+  el<HTMLButtonElement>("f-update").addEventListener("click", onUpdateClick);
+  el<HTMLButtonElement>("f-apply").addEventListener("click", onApplyClick);
   el<HTMLButtonElement>("close").addEventListener("click", () => {
     parent.postMessage({ pluginMessage: { type: "close" } }, "*");
   });
 
   window.addEventListener("message", (event) => {
     const msg = event.data?.pluginMessage;
-    if (msg && msg.type === "create-result") {
-      const createBtn = el<HTMLButtonElement>("f-create");
-      createBtn.disabled = false;
+    if (!msg) return;
+
+    if (msg.type === "init-status") {
+      setSystemExistsUI(msg.systemExists);
+      if (msg.savedInputs) {
+        restoreSavedInputs(msg.savedInputs);
+      }
+      return;
+    }
+
+    if (msg.type === "create-result") {
       const res = msg.result;
       const status = el("status");
       status.textContent = res.message;
       if (res.success) {
+        setSystemExistsUI(true);
+        status.style.color = "var(--text)";
+      } else {
+        setSystemExistsUI(false);
+        status.style.color = "var(--danger)";
+      }
+      return;
+    }
+
+    if (msg.type === "preview-update-result") {
+      const res = msg.result;
+      const status = el("status");
+      const previewBox = el<HTMLElement>("update-preview-box");
+      const summary = el("update-summary");
+      const diffList = el("update-diff-list");
+      const applyBtn = el<HTMLButtonElement>("f-apply");
+      const updateBtn = el<HTMLButtonElement>("f-update");
+
+      updateBtn.disabled = false;
+
+      if (!res.success) {
+        status.style.color = "var(--danger)";
+        status.textContent = res.message;
+        previewBox.hidden = true;
+        applyBtn.disabled = true;
+        return;
+      }
+
+      status.textContent = "";
+      previewBox.hidden = false;
+      const diff = res.diff;
+      summary.textContent = diff.summaryText;
+      diffList.textContent = "";
+
+      if (diff.changes.length === 0) {
+        const li = document.createElement("li");
+        li.className = "mono";
+        li.textContent = "Nothing to update.";
+        diffList.appendChild(li);
+      } else {
+        for (const c of diff.changes) {
+          const li = document.createElement("li");
+          li.className = "mono";
+          li.textContent = c.formatted;
+          diffList.appendChild(li);
+        }
+      }
+
+      applyBtn.disabled = !diff.hasChanges;
+      return;
+    }
+
+    if (msg.type === "apply-update-result") {
+      const res = msg.result;
+      const status = el("status");
+      const updateBtn = el<HTMLButtonElement>("f-update");
+      const applyBtn = el<HTMLButtonElement>("f-apply");
+      const previewBox = el<HTMLElement>("update-preview-box");
+
+      updateBtn.disabled = false;
+      applyBtn.disabled = true;
+      previewBox.hidden = true;
+
+      status.textContent = res.message;
+      if (res.success) {
+        setSystemExistsUI(true);
         status.style.color = "var(--text)";
       } else {
         status.style.color = "var(--danger)";
       }
+      return;
     }
   });
 }
