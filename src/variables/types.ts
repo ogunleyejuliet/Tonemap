@@ -1,10 +1,10 @@
 import type { PaletteName } from "../colors/keyColors.js";
-import type { RoleName, RoleRef } from "../colors/roles.js";
+import type { RoleName, RoleRef, ResolvedRoles } from "../colors/roles.js";
 import type { BuiltPalette } from "../colors/palettes.js";
 
 export interface CreatePayload {
   palettes: Record<PaletteName, BuiltPalette>;
-  roles: Record<RoleName, string>;
+  roles: ResolvedRoles;
   roleRefs: Record<RoleName, RoleRef>;
 }
 

@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { buildColorSystem } from "../colors/system.js";
+import { buildCreatePayload } from "./plan.js";
 
 interface FakeCollection {
   name: string;
@@ -104,11 +105,7 @@ const { createSystemInFigma } = await import("../../code.ts");
 
 describe("free plan fallback trigger in createSystemInFigma", () => {
   const validSystem = buildColorSystem({ primary: "#6750A4" });
-  const validPayload = {
-    palettes: validSystem.palettes,
-    roles: validSystem.roles,
-    roleRefs: validSystem.roleRefs,
-  };
+  const validPayload = buildCreatePayload(validSystem);
 
   beforeEach(() => {
     collections.length = 0;

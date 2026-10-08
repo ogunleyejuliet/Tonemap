@@ -63,8 +63,9 @@ describe("palette sizes", () => {
 });
 
 describe("role references", () => {
-  it("points every role at an existing palette and tone", () => {
+  it("points every role at an existing palette and tone and has exactly 57 roles", () => {
     const sys = buildColorSystem({ primary: "#6750A4" });
+    expect(Object.keys(ROLE_DEFINITIONS).length).toBe(57);
     for (const [role, ref] of Object.entries(ROLE_DEFINITIONS)) {
       const palette = (sys.palettes as Record<string, { hex: Record<number, string> }>)[
         ref.palette
@@ -83,6 +84,30 @@ describe("role references", () => {
     for (const role of Object.keys(ROLE_DEFINITIONS) as RoleName[]) {
       expect(sys.roles.light[role]).toMatch(/^#[0-9A-F]{6}$/);
       expect(sys.roles.dark[role]).toMatch(/^#[0-9A-F]{6}$/);
+    }
+  });
+
+  it("verifies each of the 12 fixed roles points to the right palette and tone in both modes", () => {
+    const fixedRolesSpec: Array<[RoleName, "primary" | "secondary" | "tertiary", number]> = [
+      ["primaryFixed", "primary", 90],
+      ["primaryFixedDim", "primary", 80],
+      ["onPrimaryFixed", "primary", 10],
+      ["onPrimaryFixedVariant", "primary", 30],
+      ["secondaryFixed", "secondary", 90],
+      ["secondaryFixedDim", "secondary", 80],
+      ["onSecondaryFixed", "secondary", 10],
+      ["onSecondaryFixedVariant", "secondary", 30],
+      ["tertiaryFixed", "tertiary", 90],
+      ["tertiaryFixedDim", "tertiary", 80],
+      ["onTertiaryFixed", "tertiary", 10],
+      ["onTertiaryFixedVariant", "tertiary", 30],
+    ];
+
+    for (const [role, palette, tone] of fixedRolesSpec) {
+      const def = ROLE_DEFINITIONS[role];
+      expect(def.palette, `${role} palette`).toBe(palette);
+      expect(def.lightTone, `${role} lightTone`).toBe(tone);
+      expect(def.darkTone, `${role} darkTone`).toBe(tone);
     }
   });
 });
@@ -196,6 +221,18 @@ const LEGACY_SKIP = new Set([
   "surfaceContainerHigh",
   "surfaceContainerHighest",
   "surfaceTint",
+  "primaryFixed",
+  "primaryFixedDim",
+  "onPrimaryFixed",
+  "onPrimaryFixedVariant",
+  "secondaryFixed",
+  "secondaryFixedDim",
+  "onSecondaryFixed",
+  "onSecondaryFixedVariant",
+  "tertiaryFixed",
+  "tertiaryFixedDim",
+  "onTertiaryFixed",
+  "onTertiaryFixedVariant",
 ]);
 
 describe("comparison with the library dynamic tonal-spot scheme", () => {
@@ -211,12 +248,20 @@ describe("comparison with the library dynamic tonal-spot scheme", () => {
     { role: "primaryContainer", mode: "light", reason: "primary keeps the seed chroma" },
     { role: "surfaceTint", mode: "light", reason: "primary keeps the seed chroma" },
     { role: "inversePrimary", mode: "light", reason: "primary keeps the seed chroma" },
+    { role: "primaryFixed", mode: "light", reason: "primary keeps the seed chroma" },
+    { role: "primaryFixedDim", mode: "light", reason: "primary keeps the seed chroma" },
+    { role: "onPrimaryFixed", mode: "light", reason: "primary keeps the seed chroma" },
+    { role: "onPrimaryFixedVariant", mode: "light", reason: "primary keeps the seed chroma" },
     { role: "primary", mode: "dark", reason: "primary keeps the seed chroma" },
     { role: "primaryContainer", mode: "dark", reason: "primary keeps the seed chroma" },
     { role: "onPrimary", mode: "dark", reason: "primary keeps the seed chroma" },
     { role: "onPrimaryContainer", mode: "dark", reason: "primary keeps the seed chroma" },
     { role: "surfaceTint", mode: "dark", reason: "primary keeps the seed chroma" },
     { role: "inversePrimary", mode: "dark", reason: "primary keeps the seed chroma" },
+    { role: "primaryFixed", mode: "dark", reason: "primary keeps the seed chroma" },
+    { role: "primaryFixedDim", mode: "dark", reason: "primary keeps the seed chroma" },
+    { role: "onPrimaryFixed", mode: "dark", reason: "primary keeps the seed chroma" },
+    { role: "onPrimaryFixedVariant", mode: "dark", reason: "primary keeps the seed chroma" },
   ];
 
   it("matches SchemeTonalSpot except for the known differences", () => {

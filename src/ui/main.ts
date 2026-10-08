@@ -15,6 +15,7 @@ import {
   type SecondaryTertiaryMode,
 } from "../colors/index.js";
 import { hexToArgb } from "../colors/hex.js";
+import { buildCreatePayload } from "../variables/plan.js";
 import { parseHexField } from "./validate.js";
 
 type Method = SecondaryTertiaryMode;
@@ -576,11 +577,7 @@ function onCreateClick(): void {
       autoFixContrast: state.autoFix,
     });
 
-    const payload = {
-      palettes: sys.palettes,
-      roles: sys.roles,
-      roleRefs: sys.roleRefs,
-    };
+    const payload = buildCreatePayload(sys);
 
     parent.postMessage(
       {
@@ -620,11 +617,7 @@ function onUpdateClick(): void {
       autoFixContrast: state.autoFix,
     });
 
-    const payload = {
-      palettes: sys.palettes,
-      roles: sys.roles,
-      roleRefs: sys.roleRefs,
-    };
+    const payload = buildCreatePayload(sys);
 
     parent.postMessage(
       {
@@ -664,11 +657,7 @@ function onApplyClick(): void {
       autoFixContrast: state.autoFix,
     });
 
-    const payload = {
-      palettes: sys.palettes,
-      roles: sys.roles,
-      roleRefs: sys.roleRefs,
-    };
+    const payload = buildCreatePayload(sys);
 
     parent.postMessage(
       {

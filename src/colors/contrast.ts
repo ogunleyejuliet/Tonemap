@@ -28,6 +28,19 @@ export const CONTRAST_PAIRS: ContrastPair[] = [
   { bg: "warningContainer", fg: "onWarningContainer" },
   { bg: "success", fg: "onSuccess" },
   { bg: "successContainer", fg: "onSuccessContainer" },
+  // Fixed role contrast pairs
+  { bg: "primaryFixed", fg: "onPrimaryFixed" },
+  { bg: "primaryFixedDim", fg: "onPrimaryFixed" },
+  { bg: "primaryFixed", fg: "onPrimaryFixedVariant" },
+  { bg: "primaryFixedDim", fg: "onPrimaryFixedVariant" },
+  { bg: "secondaryFixed", fg: "onSecondaryFixed" },
+  { bg: "secondaryFixedDim", fg: "onSecondaryFixed" },
+  { bg: "secondaryFixed", fg: "onSecondaryFixedVariant" },
+  { bg: "secondaryFixedDim", fg: "onSecondaryFixedVariant" },
+  { bg: "tertiaryFixed", fg: "onTertiaryFixed" },
+  { bg: "tertiaryFixedDim", fg: "onTertiaryFixed" },
+  { bg: "tertiaryFixed", fg: "onTertiaryFixedVariant" },
+  { bg: "tertiaryFixedDim", fg: "onTertiaryFixedVariant" },
 ];
 
 export interface ContrastFix {

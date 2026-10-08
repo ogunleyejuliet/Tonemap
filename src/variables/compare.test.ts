@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { buildColorSystem } from "../colors/system.js";
-import { buildWritePlan, validatePayload } from "./plan.js";
+import { buildWritePlan, validatePayload, buildCreatePayload } from "./plan.js";
 import {
   compareWritePlan,
   type SystemSnapshot,
@@ -48,11 +48,7 @@ function buildSnapshotFromPlan(plan: ReturnType<typeof buildWritePlan>): SystemS
 
 describe("compareWritePlan pure comparison tests", () => {
   const sys1 = buildColorSystem({ primary: "#6750A4" }, { autoFixContrast: false });
-  const val1 = validatePayload({
-    palettes: sys1.palettes,
-    roles: sys1.roles,
-    roleRefs: sys1.roleRefs,
-  });
+  const val1 = validatePayload(buildCreatePayload(sys1));
   if (!val1.valid) throw new Error("Invalid val1");
   const plan1 = buildWritePlan(val1.payload, { fallback: false });
 
@@ -71,11 +67,7 @@ describe("compareWritePlan pure comparison tests", () => {
     const snapshot = buildSnapshotFromPlan(plan1);
 
     const sys2 = buildColorSystem({ primary: "#00E3AA" }, { autoFixContrast: false });
-    const val2 = validatePayload({
-      palettes: sys2.palettes,
-      roles: sys2.roles,
-      roleRefs: sys2.roleRefs,
-    });
+    const val2 = validatePayload(buildCreatePayload(sys2));
     if (!val2.valid) throw new Error("Invalid val2");
     const plan2 = buildWritePlan(val2.payload, { fallback: false });
 
@@ -92,21 +84,13 @@ describe("compareWritePlan pure comparison tests", () => {
   it("3. an auto-fix swap changes only the alias target for affected roles", () => {
     // sysNoFix has autoFix disabled; sysWithFix has autoFix enabled
     const sysNoFix = buildColorSystem({ primary: "#6750A4" }, { autoFixContrast: false });
-    const valNoFix = validatePayload({
-      palettes: sysNoFix.palettes,
-      roles: sysNoFix.roles,
-      roleRefs: sysNoFix.roleRefs,
-    });
+    const valNoFix = validatePayload(buildCreatePayload(sysNoFix));
     if (!valNoFix.valid) throw new Error("Invalid valNoFix");
     const planNoFix = buildWritePlan(valNoFix.payload, { fallback: false });
     const snapshot = buildSnapshotFromPlan(planNoFix);
 
     const sysWithFix = buildColorSystem({ primary: "#6750A4" }, { autoFixContrast: true });
-    const valWithFix = validatePayload({
-      palettes: sysWithFix.palettes,
-      roles: sysWithFix.roles,
-      roleRefs: sysWithFix.roleRefs,
-    });
+    const valWithFix = validatePayload(buildCreatePayload(sysWithFix));
     if (!valWithFix.valid) throw new Error("Invalid valWithFix");
     const planWithFix = buildWritePlan(valWithFix.payload, { fallback: false });
 
@@ -136,11 +120,7 @@ describe("compareWritePlan pure comparison tests", () => {
 
     // Now update primary color to #00E3AA
     const sys2 = buildColorSystem({ primary: "#00E3AA" }, { autoFixContrast: false });
-    const val2 = validatePayload({
-      palettes: sys2.palettes,
-      roles: sys2.roles,
-      roleRefs: sys2.roleRefs,
-    });
+    const val2 = validatePayload(buildCreatePayload(sys2));
     if (!val2.valid) throw new Error("Invalid val2");
     const plan2 = buildWritePlan(val2.payload, { fallback: false });
 
@@ -186,5 +166,39 @@ describe("compareWritePlan pure comparison tests", () => {
     const untouched = diff.changes.find((c) => c.type === "VARIABLE_UNTOUCHED");
     expect(untouched).toBeDefined();
     expect(untouched?.formatted).toContain("Custom Extra/10 (left unchanged)");
+  });
+
+  it("7. reports all 12 fixed roles as added for an existing system snapshot that does not have them", () => {
+    const snapshot = buildSnapshotFromPlan(plan1);
+    const fixedRoleIds = [
+      "role:primaryFixed",
+      "role:primaryFixedDim",
+      "role:onPrimaryFixed",
+      "role:onPrimaryFixedVariant",
+      "role:secondaryFixed",
+      "role:secondaryFixedDim",
+      "role:onSecondaryFixed",
+      "role:onSecondaryFixedVariant",
+      "role:tertiaryFixed",
+      "role:tertiaryFixedDim",
+      "role:onTertiaryFixed",
+      "role:onTertiaryFixedVariant",
+    ];
+
+    // Filter out the 12 fixed roles from snapshot to simulate an older existing system
+    const colorCol = snapshot.collections.find((c) => c.name === "Color");
+    if (colorCol) {
+      colorCol.variables = colorCol.variables.filter((v) => !fixedRoleIds.includes(v.id));
+    }
+
+    const diff = compareWritePlan(snapshot, plan1);
+
+    expect(diff.hasChanges).toBe(true);
+    expect(diff.addedCount).toBe(12);
+
+    const addedIds = diff.changes.filter((c) => c.type === "VARIABLE_ADDED").map((c) => c.id);
+    for (const fixedId of fixedRoleIds) {
+      expect(addedIds).toContain(fixedId);
+    }
   });
 });

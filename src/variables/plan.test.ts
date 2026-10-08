@@ -1,14 +1,10 @@
 import { describe, it, expect } from "vitest";
 import { buildColorSystem } from "../colors/system.js";
-import { validatePayload, buildWritePlan } from "./plan.js";
+import { validatePayload, buildWritePlan, buildCreatePayload } from "./plan.js";
 
 describe("variable write plan builder and validator", () => {
   const validSystem = buildColorSystem({ primary: "#6750A4" });
-  const validPayload = {
-    palettes: validSystem.palettes,
-    roles: validSystem.roles,
-    roleRefs: validSystem.roleRefs,
-  };
+  const validPayload = buildCreatePayload(validSystem);
 
   it("validates a correct payload successfully", () => {
     const result = validatePayload(validPayload);
@@ -59,10 +55,10 @@ describe("variable write plan builder and validator", () => {
     expect(colorCol.name).toBe("Color");
     expect(colorCol.modes).toEqual(["Light", "Dark"]);
 
-    // Check counts: 7 palettes * 14 tones + 1 palette * 24 tones = 122 palette vars; 45 role vars
+    // Check counts: 7 palettes * 14 tones + 1 palette * 24 tones = 122 palette vars; 57 role vars
     expect(paletteCol.variables.length).toBe(122);
-    expect(colorCol.variables.length).toBe(45);
-    expect(plan.totalVariables).toBe(167);
+    expect(colorCol.variables.length).toBe(57);
+    expect(plan.totalVariables).toBe(179);
 
     // Check variable naming examples
     const primary40 = paletteCol.variables.find((v) => v.name === "Primary/40");
@@ -121,8 +117,8 @@ describe("variable write plan builder and validator", () => {
     expect(darkCol.modes).toEqual(["Dark"]);
 
     expect(paletteCol.variables.length).toBe(122);
-    expect(lightCol.variables.length).toBe(45);
-    expect(darkCol.variables.length).toBe(45);
-    expect(plan.totalVariables).toBe(212);
+    expect(lightCol.variables.length).toBe(57);
+    expect(darkCol.variables.length).toBe(57);
+    expect(plan.totalVariables).toBe(236);
   });
 });

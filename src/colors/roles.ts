@@ -66,6 +66,20 @@ export const ROLE_DEFINITIONS = {
   shadow: { palette: "neutral", lightTone: 0, darkTone: 0 },
   scrim: { palette: "neutral", lightTone: 0, darkTone: 0 },
   surfaceTint: { palette: "primary", lightTone: 40, darkTone: 80 },
+
+  // Fixed roles
+  primaryFixed: { palette: "primary", lightTone: 90, darkTone: 90 },
+  primaryFixedDim: { palette: "primary", lightTone: 80, darkTone: 80 },
+  onPrimaryFixed: { palette: "primary", lightTone: 10, darkTone: 10 },
+  onPrimaryFixedVariant: { palette: "primary", lightTone: 30, darkTone: 30 },
+  secondaryFixed: { palette: "secondary", lightTone: 90, darkTone: 90 },
+  secondaryFixedDim: { palette: "secondary", lightTone: 80, darkTone: 80 },
+  onSecondaryFixed: { palette: "secondary", lightTone: 10, darkTone: 10 },
+  onSecondaryFixedVariant: { palette: "secondary", lightTone: 30, darkTone: 30 },
+  tertiaryFixed: { palette: "tertiary", lightTone: 90, darkTone: 90 },
+  tertiaryFixedDim: { palette: "tertiary", lightTone: 80, darkTone: 80 },
+  onTertiaryFixed: { palette: "tertiary", lightTone: 10, darkTone: 10 },
+  onTertiaryFixedVariant: { palette: "tertiary", lightTone: 30, darkTone: 30 },
 } as const satisfies Record<string, RoleRef>;
 
 export type RoleName = keyof typeof ROLE_DEFINITIONS;

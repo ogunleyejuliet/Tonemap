@@ -5,7 +5,8 @@
   "main": "code.js",
   "scripts": {
     "build": "node scripts/build-ui.mjs",
-    "test": "vitest run",
+    "typecheck": "tsc --noEmit",
+    "test": "npm run typecheck && vitest run",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
     "watch": "node scripts/build-ui.mjs --watch"

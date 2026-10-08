@@ -79,6 +79,11 @@ pinned at exactly `0.3.0`, but deliberately differs from it in four places:
    default" mode nothing is overridden: the library tonal-spot palette is
    used as-is and the field shows its tone 40. Error, warning and success
    are never locked.
+5. **Fixed roles use identical tones across Light and Dark modes.**
+   The 12 Material 3 fixed roles (`primaryFixed` at tone 90, `primaryFixedDim`
+   at tone 80, `onPrimaryFixed` at tone 10, `onPrimaryFixedVariant` at tone 30,
+   and their secondary and tertiary equivalents) maintain identical tone assignments
+   in both Light and Dark modes.
 
 These are recorded as reasoned entries in the known-differences
 comparison tests: a test passes only when every library mismatch is on

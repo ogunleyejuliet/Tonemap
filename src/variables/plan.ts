@@ -1,11 +1,20 @@
 import type { PaletteName } from "../colors/keyColors.js";
 import { ROLE_DEFINITIONS, type RoleName } from "../colors/roles.js";
+import type { ColorSystem } from "../colors/system.js";
 import type {
   CreatePayload,
   WritePlan,
   CollectionPlanSpec,
   VariablePlanSpec,
 } from "./types.js";
+
+export function buildCreatePayload(system: ColorSystem): CreatePayload {
+  return {
+    palettes: system.palettes,
+    roles: system.roles,
+    roleRefs: system.roleRefs,
+  };
+}
 
 export const PALETTE_ORDER: PaletteName[] = [
   "primary",
