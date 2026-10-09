@@ -1,6 +1,7 @@
 import { validatePayload, buildWritePlan } from "./src/variables/plan.js";
 import { compareWritePlan, type SystemSnapshot, type SnapshotCollection, type SnapshotVariable } from "./src/variables/compare.js";
 import type { CreateResult, CollectionPlanSpec } from "./src/variables/types.js";
+import { exportSnapshotToTokensJson } from "./src/variables/export.js";
 
 figma.showUI(__html__, { width: 900, height: 640, themeColors: true });
 
@@ -503,6 +504,33 @@ figma.ui.onmessage = async (msg: { type: string; payload?: unknown; inputs?: unk
       figma.notify(result.message, { error: true });
     }
     figma.ui.postMessage({ type: "apply-update-result", result });
+    return;
+  }
+  if (msg.type === "export-json") {
+    try {
+      const { snapshot } = await getSystemSnapshot();
+      if (!snapshot) {
+        figma.ui.postMessage({
+          type: "export-json-result",
+          success: false,
+          message: "No M3 color system found in file. Please create system first.",
+        });
+        return;
+      }
+
+      const result = exportSnapshotToTokensJson(snapshot);
+      figma.ui.postMessage({
+        type: "export-json-result",
+        success: true,
+        result,
+      });
+    } catch (err) {
+      figma.ui.postMessage({
+        type: "export-json-result",
+        success: false,
+        message: `Failed to read variables from Figma file: ${err instanceof Error ? err.message : String(err)}`,
+      });
+    }
     return;
   }
 };

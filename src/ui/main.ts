@@ -546,17 +546,22 @@ function setSystemExistsUI(exists: boolean): void {
   const createBtn = el<HTMLButtonElement>("f-create");
   const updateBtn = el<HTMLButtonElement>("f-update");
   const applyBtn = el<HTMLButtonElement>("f-apply");
+  const exportBtn = el<HTMLButtonElement>("f-export");
 
   if (exists) {
     createBtn.disabled = true;
     createBtn.textContent = "A system already exists. Use Update.";
     updateBtn.disabled = false;
     applyBtn.disabled = true;
+    exportBtn.disabled = false;
+    exportBtn.title = "";
   } else {
     createBtn.disabled = false;
     createBtn.textContent = "Create variables in Figma";
     updateBtn.disabled = true;
     applyBtn.disabled = true;
+    exportBtn.disabled = true;
+    exportBtn.title = "No M3 color system found in file. Please create system first.";
   }
 }
 
@@ -678,6 +683,72 @@ function onApplyClick(): void {
   }
 }
 
+function onExportClick(): void {
+  const status = el("status");
+  status.style.color = "var(--text)";
+  status.textContent = "Exporting JSON tokens from Figma file...";
+
+  parent.postMessage(
+    {
+      pluginMessage: {
+        type: "export-json",
+      },
+    },
+    "*",
+  );
+}
+
+function onCopyJsonClick(): void {
+  const textArea = el<HTMLTextAreaElement>("export-json-text");
+  const exportStatus = el("export-status");
+  try {
+    textArea.select();
+    textArea.setSelectionRange(0, 999999);
+    const copied = document.execCommand("copy");
+    if (copied) {
+      exportStatus.style.color = "var(--text)";
+      exportStatus.textContent = "Copied JSON to clipboard!";
+      return;
+    }
+  } catch (_e) { /* fallback */ }
+
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(textArea.value).then(() => {
+      exportStatus.style.color = "var(--text)";
+      exportStatus.textContent = "Copied JSON to clipboard!";
+    }).catch((err) => {
+      exportStatus.style.color = "var(--danger)";
+      exportStatus.textContent = `Copy failed: ${err instanceof Error ? err.message : String(err)}`;
+    });
+  } else {
+    exportStatus.style.color = "var(--danger)";
+    exportStatus.textContent = "Copy failed. Please select text manually.";
+  }
+}
+
+function onDownloadJsonClick(): void {
+  const textArea = el<HTMLTextAreaElement>("export-json-text");
+  const exportStatus = el("export-status");
+
+  try {
+    const blob = new Blob([textArea.value], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "tokens.json";
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    exportStatus.style.color = "var(--text)";
+    exportStatus.textContent = "Downloaded tokens.json!";
+  } catch (_err) {
+    el<HTMLButtonElement>("f-download-json").hidden = true;
+    exportStatus.style.color = "var(--text)";
+    exportStatus.textContent = "Download is restricted inside Figma plugin window. Use Copy JSON instead.";
+  }
+}
+
 function init(): void {
   el<HTMLInputElement>("f-primary").value = state.primary;
   refreshDerived();
@@ -718,6 +789,9 @@ function init(): void {
   el<HTMLButtonElement>("f-create").addEventListener("click", onCreateClick);
   el<HTMLButtonElement>("f-update").addEventListener("click", onUpdateClick);
   el<HTMLButtonElement>("f-apply").addEventListener("click", onApplyClick);
+  el<HTMLButtonElement>("f-export").addEventListener("click", onExportClick);
+  el<HTMLButtonElement>("f-copy-json").addEventListener("click", onCopyJsonClick);
+  el<HTMLButtonElement>("f-download-json").addEventListener("click", onDownloadJsonClick);
   el<HTMLButtonElement>("close").addEventListener("click", () => {
     parent.postMessage({ pluginMessage: { type: "close" } }, "*");
   });
@@ -808,6 +882,37 @@ function init(): void {
         status.style.color = "var(--text)";
       } else {
         status.style.color = "var(--danger)";
+      }
+      return;
+    }
+
+    if (msg.type === "export-json-result") {
+      const status = el("status");
+      const exportBox = el<HTMLElement>("export-box");
+      const exportCount = el("export-count");
+      const exportText = el<HTMLTextAreaElement>("export-json-text");
+      const exportStatus = el("export-status");
+
+      if (!msg.success || !msg.result) {
+        status.style.color = "var(--danger)";
+        status.textContent = msg.message || "Export failed.";
+        exportBox.hidden = true;
+        return;
+      }
+
+      const res = msg.result;
+      status.textContent = "";
+      exportBox.hidden = false;
+      exportCount.textContent = `Exported ${res.counts.paletteTokens} palette tokens and ${res.counts.totalRoleTokens} role tokens (${res.counts.roleTokensLight} Light, ${res.counts.roleTokensDark} Dark).`;
+      exportText.value = res.jsonString;
+      exportStatus.textContent = "";
+
+      // Check if downloading works inside current window environment
+      const isFigmaIframe = window.parent !== window;
+      if (isFigmaIframe) {
+        const downloadBtn = el<HTMLButtonElement>("f-download-json");
+        downloadBtn.hidden = true;
+        exportStatus.textContent = "Note: Download is restricted in Figma plugin windows. Use Copy JSON instead.";
       }
       return;
     }
