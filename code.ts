@@ -98,7 +98,16 @@ async function getSystemSnapshot(): Promise<{ snapshot: SystemSnapshot | null; p
     });
   }
 
-  const inputsJson = paletteCol ? paletteCol.getPluginData("m3gen_inputs") : undefined;
+  let inputsJson = paletteCol ? paletteCol.getPluginData("m3gen_inputs") : undefined;
+  if (!inputsJson) {
+    for (const col of pluginCols) {
+      const data = col.getPluginData("m3gen_inputs");
+      if (data) {
+        inputsJson = data;
+        break;
+      }
+    }
+  }
 
   return {
     snapshot: {
@@ -221,8 +230,12 @@ export async function createSystemInFigma(
       }
     }
 
-    if (paletteColCreated && inputs) {
-      paletteColCreated.setPluginData("m3gen_inputs", JSON.stringify(inputs));
+    const targetCol = paletteColCreated || createdCollections[0];
+    if (targetCol && inputs) {
+      targetCol.setPluginData(
+        "m3gen_inputs",
+        typeof inputs === "string" ? inputs : JSON.stringify(inputs),
+      );
     }
 
     return {
@@ -412,8 +425,12 @@ async function applyUpdateInFigma(rawPayload: unknown, inputs?: unknown) {
       }
     }
 
-    if (paletteCol && inputs) {
-      paletteCol.setPluginData("m3gen_inputs", JSON.stringify(inputs));
+    const targetCol = paletteCol || pluginCols[0];
+    if (targetCol && inputs) {
+      targetCol.setPluginData(
+        "m3gen_inputs",
+        typeof inputs === "string" ? inputs : JSON.stringify(inputs),
+      );
     }
 
     const message = `System updated successfully. Applied changes to Figma variables.`;
@@ -446,18 +463,10 @@ async function applyUpdateInFigma(rawPayload: unknown, inputs?: unknown) {
 async function sendInitStatus() {
   const { snapshot } = await getSystemSnapshot();
   if (snapshot) {
-    let savedInputs: unknown = null;
-    if (snapshot.inputsJson) {
-      try {
-        savedInputs = JSON.parse(snapshot.inputsJson);
-      } catch (_e) {
-        savedInputs = null;
-      }
-    }
     figma.ui.postMessage({
       type: "init-status",
       systemExists: true,
-      savedInputs,
+      savedInputs: snapshot.inputsJson ?? null,
     });
   } else {
     figma.ui.postMessage({

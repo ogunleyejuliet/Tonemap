@@ -17,6 +17,12 @@ import {
 import { hexToArgb } from "../colors/hex.js";
 import { buildCreatePayload } from "../variables/plan.js";
 import { parseHexField } from "./validate.js";
+import {
+  getActionButtonState,
+  parseSavedInputs,
+  serializeSavedInputs,
+  type SavedInputs,
+} from "./inputs.js";
 
 type Method = SecondaryTertiaryMode;
 
@@ -493,12 +499,13 @@ function resetAll(): void {
   render();
 }
 
-function currentInputsState(): Record<string, unknown> {
+function currentSavedInputs(): SavedInputs {
   return {
+    version: 1,
     primary: state.primary,
     secondaryMethod: state.secondaryMethod,
-    tertiaryMethod: state.tertiaryMethod,
     secondaryHex: state.hex.secondary,
+    tertiaryMethod: state.tertiaryMethod,
     tertiaryHex: state.hex.tertiary,
     neutral: state.hex.neutral,
     neutralVariant: state.hex.neutralVariant,
@@ -509,67 +516,78 @@ function currentInputsState(): Record<string, unknown> {
   };
 }
 
-function restoreSavedInputs(inputs: Record<string, unknown>): void {
-  if (typeof inputs.primary === "string" && inputs.primary) {
-    state.primary = inputs.primary;
-    el<HTMLInputElement>("f-primary").value = inputs.primary;
-  }
-  if (typeof inputs.secondaryMethod === "string") {
-    state.secondaryMethod = inputs.secondaryMethod as Method;
-    el<HTMLSelectElement>("f-secondary-method").value = inputs.secondaryMethod;
-  }
-  if (typeof inputs.tertiaryMethod === "string") {
-    state.tertiaryMethod = inputs.tertiaryMethod as Method;
-    el<HTMLSelectElement>("f-tertiary-method").value = inputs.tertiaryMethod;
-  }
-  if (typeof inputs.secondaryHex === "string" && inputs.secondaryHex) {
-    state.hex.secondary = inputs.secondaryHex;
-  }
-  if (typeof inputs.tertiaryHex === "string" && inputs.tertiaryHex) {
-    state.hex.tertiary = inputs.tertiaryHex;
-  }
+function restoreSavedInputs(saved: SavedInputs): void {
+  state.primary = saved.primary;
+  el<HTMLInputElement>("f-primary").value = saved.primary;
+  el<HTMLInputElement>("f-primary-picker").value = saved.primary.toLowerCase();
+
+  state.secondaryMethod = saved.secondaryMethod;
+  el<HTMLSelectElement>("f-secondary-method").value = saved.secondaryMethod;
+  setHexField("secondary", saved.secondaryHex);
+
+  state.tertiaryMethod = saved.tertiaryMethod;
+  el<HTMLSelectElement>("f-tertiary-method").value = saved.tertiaryMethod;
+  setHexField("tertiary", saved.tertiaryHex);
+
+  state.touched.clear();
   (["neutral", "neutralVariant", "error", "warning", "success"] as const).forEach((key) => {
-    if (typeof inputs[key] === "string" && inputs[key]) {
-      state.hex[key] = inputs[key] as string;
-      state.touched.add(key);
-    }
+    setHexField(key, saved[key]);
+    state.touched.add(key);
   });
-  if (typeof inputs.autoFix === "boolean") {
-    state.autoFix = inputs.autoFix;
-    el<HTMLInputElement>("f-autofix").checked = inputs.autoFix;
-  }
+
+  state.autoFix = saved.autoFix;
+  el<HTMLInputElement>("f-autofix").checked = saved.autoFix;
+
   refreshDerived();
   render();
 }
 
+let currentMode: "create" | "update" = "create";
+
 function setSystemExistsUI(exists: boolean): void {
-  const createBtn = el<HTMLButtonElement>("f-create");
-  const updateBtn = el<HTMLButtonElement>("f-update");
+  const actionState = getActionButtonState(exists);
+  currentMode = actionState.mode;
+
+  const actionBtn = el<HTMLButtonElement>("f-action");
+  const helperText = el<HTMLElement>("system-exists-text");
   const applyBtn = el<HTMLButtonElement>("f-apply");
   const exportBtn = el<HTMLButtonElement>("f-export");
 
+  actionBtn.textContent = actionState.label;
+  actionBtn.disabled = false;
+
+  if (actionState.showHelper) {
+    helperText.textContent = actionState.helperText;
+    helperText.hidden = false;
+  } else {
+    helperText.textContent = "";
+    helperText.hidden = true;
+  }
+
   if (exists) {
-    createBtn.disabled = true;
-    createBtn.textContent = "A system already exists. Use Update.";
-    updateBtn.disabled = false;
-    applyBtn.disabled = true;
     exportBtn.disabled = false;
     exportBtn.title = "";
   } else {
-    createBtn.disabled = false;
-    createBtn.textContent = "Create variables in Figma";
-    updateBtn.disabled = true;
-    applyBtn.disabled = true;
     exportBtn.disabled = true;
     exportBtn.title = "No M3 color system found in file. Please create system first.";
+    applyBtn.disabled = true;
+  }
+}
+
+function onActionClick(): void {
+  const actionBtn = el<HTMLButtonElement>("f-action");
+  actionBtn.disabled = true;
+
+  if (currentMode === "create") {
+    onCreateClick();
+  } else {
+    onUpdateClick();
   }
 }
 
 function onCreateClick(): void {
-  const createBtn = el<HTMLButtonElement>("f-create");
-  const updateBtn = el<HTMLButtonElement>("f-update");
-  createBtn.disabled = true;
-  updateBtn.disabled = true;
+  const actionBtn = el<HTMLButtonElement>("f-action");
+  actionBtn.disabled = true;
 
   const status = el("status");
   status.style.color = "var(--text)";
@@ -589,13 +607,13 @@ function onCreateClick(): void {
         pluginMessage: {
           type: "create-system",
           payload,
-          inputs: currentInputsState(),
+          inputs: serializeSavedInputs(currentSavedInputs()),
         },
       },
       "*",
     );
   } catch (err) {
-    createBtn.disabled = false;
+    actionBtn.disabled = false;
     status.style.color = "var(--danger)";
     status.textContent =
       "Could not create system: " + (err instanceof Error ? err.message : String(err));
@@ -603,12 +621,10 @@ function onCreateClick(): void {
 }
 
 function onUpdateClick(): void {
-  const updateBtn = el<HTMLButtonElement>("f-update");
-  const createBtn = el<HTMLButtonElement>("f-create");
+  const actionBtn = el<HTMLButtonElement>("f-action");
   const applyBtn = el<HTMLButtonElement>("f-apply");
 
-  updateBtn.disabled = true;
-  createBtn.disabled = true;
+  actionBtn.disabled = true;
   applyBtn.disabled = true;
 
   const status = el("status");
@@ -629,13 +645,13 @@ function onUpdateClick(): void {
         pluginMessage: {
           type: "preview-update",
           payload,
-          inputs: currentInputsState(),
+          inputs: serializeSavedInputs(currentSavedInputs()),
         },
       },
       "*",
     );
   } catch (err) {
-    updateBtn.disabled = false;
+    actionBtn.disabled = false;
     status.style.color = "var(--danger)";
     status.textContent =
       "Could not preview update: " + (err instanceof Error ? err.message : String(err));
@@ -643,12 +659,10 @@ function onUpdateClick(): void {
 }
 
 function onApplyClick(): void {
-  const updateBtn = el<HTMLButtonElement>("f-update");
-  const createBtn = el<HTMLButtonElement>("f-create");
+  const actionBtn = el<HTMLButtonElement>("f-action");
   const applyBtn = el<HTMLButtonElement>("f-apply");
 
-  updateBtn.disabled = true;
-  createBtn.disabled = true;
+  actionBtn.disabled = true;
   applyBtn.disabled = true;
 
   const status = el("status");
@@ -669,13 +683,13 @@ function onApplyClick(): void {
         pluginMessage: {
           type: "apply-update",
           payload,
-          inputs: currentInputsState(),
+          inputs: serializeSavedInputs(currentSavedInputs()),
         },
       },
       "*",
     );
   } catch (err) {
-    updateBtn.disabled = false;
+    actionBtn.disabled = false;
     applyBtn.disabled = false;
     status.style.color = "var(--danger)";
     status.textContent =
@@ -738,8 +752,7 @@ function init(): void {
     render();
   });
   el<HTMLButtonElement>("f-reset").addEventListener("click", resetAll);
-  el<HTMLButtonElement>("f-create").addEventListener("click", onCreateClick);
-  el<HTMLButtonElement>("f-update").addEventListener("click", onUpdateClick);
+  el<HTMLButtonElement>("f-action").addEventListener("click", onActionClick);
   el<HTMLButtonElement>("f-apply").addEventListener("click", onApplyClick);
   el<HTMLButtonElement>("f-export").addEventListener("click", onExportClick);
   el<HTMLButtonElement>("close").addEventListener("click", () => {
@@ -752,15 +765,17 @@ function init(): void {
 
     if (msg.type === "init-status") {
       setSystemExistsUI(msg.systemExists);
-      if (msg.savedInputs) {
-        restoreSavedInputs(msg.savedInputs);
-      }
+      const saved = parseSavedInputs(msg.savedInputs);
+      restoreSavedInputs(saved);
       return;
     }
 
     if (msg.type === "create-result") {
       const res = msg.result;
       const status = el("status");
+      const actionBtn = el<HTMLButtonElement>("f-action");
+      actionBtn.disabled = false;
+
       status.textContent = res.message;
       if (res.success) {
         setSystemExistsUI(true);
@@ -779,9 +794,9 @@ function init(): void {
       const summary = el("update-summary");
       const diffList = el("update-diff-list");
       const applyBtn = el<HTMLButtonElement>("f-apply");
-      const updateBtn = el<HTMLButtonElement>("f-update");
+      const actionBtn = el<HTMLButtonElement>("f-action");
 
-      updateBtn.disabled = false;
+      actionBtn.disabled = false;
 
       if (!res.success) {
         status.style.color = "var(--danger)";
@@ -818,11 +833,11 @@ function init(): void {
     if (msg.type === "apply-update-result") {
       const res = msg.result;
       const status = el("status");
-      const updateBtn = el<HTMLButtonElement>("f-update");
+      const actionBtn = el<HTMLButtonElement>("f-action");
       const applyBtn = el<HTMLButtonElement>("f-apply");
       const previewBox = el<HTMLElement>("update-preview-box");
 
-      updateBtn.disabled = false;
+      actionBtn.disabled = false;
       applyBtn.disabled = true;
       previewBox.hidden = true;
 
