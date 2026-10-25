@@ -16,7 +16,7 @@ import {
 } from "../colors/index.js";
 import { hexToArgb } from "../colors/hex.js";
 import { buildCreatePayload } from "../variables/plan.js";
-import { parseHexField } from "./validate.js";
+import { createColorField, type ColorField } from "./colorField.js";
 import {
   getActionButtonState,
   parseSavedInputs,
@@ -51,7 +51,6 @@ const PALETTE_ORDER: PaletteName[] = [
 const STANDARD_TONES = [0, 10, 20, 30, 40, 50, 60, 70, 80, 90, 95, 98, 99, 100];
 const NEUTRAL_EXTRA_TONES = [4, 6, 12, 17, 22, 24, 87, 92, 94, 96];
 
-const HEX_HINT = "Enter 6 hex digits, e.g. #6750A4.";
 const DEBOUNCE_MS = 250;
 
 function kebab(name: string): string {
@@ -100,6 +99,19 @@ const FIELD_ID: Record<Exclude<PaletteName, "primary">, string> = {
   success: "f-success",
 };
 
+const MOUNT_ID: Record<PaletteName, string> = {
+  primary: "cf-primary",
+  secondary: "cf-secondary",
+  tertiary: "cf-tertiary",
+  neutral: "cf-neutral",
+  neutralVariant: "cf-neutral-variant",
+  error: "cf-error",
+  warning: "cf-warning",
+  success: "cf-success",
+};
+
+const colorFields: Record<PaletteName, ColorField> = {} as Record<PaletteName, ColorField>;
+
 let renderTimer = 0;
 
 function scheduleRender(): void {
@@ -107,14 +119,9 @@ function scheduleRender(): void {
   renderTimer = window.setTimeout(render, DEBOUNCE_MS);
 }
 
-function setFieldError(inputId: string, message: string): void {
-  el(`${inputId}-error`).textContent = message;
-}
-
 function setHexField(name: Exclude<PaletteName, "primary">, hex: string): void {
   state.hex[name] = hex;
-  el<HTMLInputElement>(FIELD_ID[name]).value = hex;
-  setFieldError(FIELD_ID[name], "");
+  colorFields[name]?.setValue(hex);
 }
 
 function materialDefaults(primary: string): Record<PaletteName, string> {
@@ -149,7 +156,9 @@ function refreshDerived(): void {
       if (!state.touched.has(name)) setHexField(name, d[name]);
     },
   );
-  el<HTMLInputElement>("f-primary-picker").value = state.primary.toLowerCase();
+  if (colorFields.primary) {
+    colorFields.primary.pickerInput.value = state.primary.toLowerCase();
+  }
 }
 
 function currentInputs(): {
@@ -409,13 +418,7 @@ function renderChanges(sys: ColorSystem): void {
   }
 }
 
-function processPrimary(raw: string): void {
-  const hex = parseHexField(raw);
-  if (hex === null) {
-    setFieldError("f-primary", HEX_HINT);
-    return;
-  }
-  setFieldError("f-primary", "");
+function processPrimary(hex: string): void {
   state.primary = hex;
   refreshDerived();
   scheduleRender();
@@ -423,15 +426,8 @@ function processPrimary(raw: string): void {
 
 function processAccentHex(
   which: "secondary" | "tertiary",
-  raw: string,
+  hex: string,
 ): void {
-  const inputId = FIELD_ID[which];
-  const hex = parseHexField(raw);
-  if (hex === null) {
-    setFieldError(inputId, HEX_HINT);
-    return;
-  }
-  setFieldError(inputId, "");
   state.hex[which] = hex;
   state[which === "secondary" ? "secondaryMethod" : "tertiaryMethod"] = "custom";
   el<HTMLSelectElement>(which === "secondary" ? "f-secondary-method" : "f-tertiary-method").value =
@@ -439,14 +435,10 @@ function processAccentHex(
   scheduleRender();
 }
 
-function processFreeHex(name: Exclude<PaletteName, "primary" | "secondary" | "tertiary">, raw: string): void {
-  const inputId = FIELD_ID[name];
-  const hex = parseHexField(raw);
-  if (hex === null) {
-    setFieldError(inputId, HEX_HINT);
-    return;
-  }
-  setFieldError(inputId, "");
+function processFreeHex(
+  name: Exclude<PaletteName, "primary" | "secondary" | "tertiary">,
+  hex: string,
+): void {
   state.hex[name] = hex;
   state.touched.add(name);
   scheduleRender();
@@ -498,8 +490,7 @@ function currentSavedInputs(): SavedInputs {
 
 function restoreSavedInputs(saved: SavedInputs): void {
   state.primary = saved.primary;
-  el<HTMLInputElement>("f-primary").value = saved.primary;
-  el<HTMLInputElement>("f-primary-picker").value = saved.primary.toLowerCase();
+  colorFields.primary?.setValue(saved.primary);
 
   state.secondaryMethod = saved.secondaryMethod;
   el<HTMLSelectElement>("f-secondary-method").value = saved.secondaryMethod;
@@ -696,37 +687,56 @@ function onExportClick(): void {
 }
 
 function init(): void {
-  el<HTMLInputElement>("f-primary").value = state.primary;
+  colorFields.primary = createColorField({
+    id: "f-primary",
+    pickerId: "f-primary-picker",
+    label: "Primary",
+    initialValue: state.primary,
+    placeholder: "#6750A4",
+    onValidChange: (hex) => processPrimary(hex),
+  });
+  el("cf-primary").replaceWith(colorFields.primary.row);
+
+  colorFields.secondary = createColorField({
+    id: "f-secondary-hex",
+    pickerId: "f-secondary-hex-picker",
+    label: "Secondary",
+    initialValue: "#000000",
+    placeholder: "#000000",
+    onValidChange: (hex) => processAccentHex("secondary", hex),
+  });
+  el("cf-secondary").replaceWith(colorFields.secondary.row);
+
+  colorFields.tertiary = createColorField({
+    id: "f-tertiary-hex",
+    pickerId: "f-tertiary-hex-picker",
+    label: "Tertiary",
+    initialValue: "#000000",
+    placeholder: "#000000",
+    onValidChange: (hex) => processAccentHex("tertiary", hex),
+  });
+  el("cf-tertiary").replaceWith(colorFields.tertiary.row);
+
+  (["neutral", "neutralVariant", "error", "warning", "success"] as const).forEach((name) => {
+    colorFields[name] = createColorField({
+      id: FIELD_ID[name],
+      pickerId: `${FIELD_ID[name]}-picker`,
+      label: PALETTE_LABEL[name],
+      initialValue: "#000000",
+      onValidChange: (hex) => processFreeHex(name, hex),
+    });
+    el(MOUNT_ID[name]).replaceWith(colorFields[name].row);
+  });
+
   refreshDerived();
   render();
 
-  el<HTMLInputElement>("f-primary").addEventListener("input", (e) => {
-    processPrimary((e.target as HTMLInputElement).value);
-  });
-  el<HTMLInputElement>("f-primary-picker").addEventListener("input", (e) => {
-    const picker = (e.target as HTMLInputElement).value.toUpperCase();
-    el<HTMLInputElement>("f-primary").value = picker;
-    processPrimary(picker);
-  });
   el<HTMLSelectElement>("f-secondary-method").addEventListener("change", () =>
     onMethodChange("secondary"),
   );
   el<HTMLSelectElement>("f-tertiary-method").addEventListener("change", () =>
     onMethodChange("tertiary"),
   );
-  el<HTMLInputElement>("f-secondary-hex").addEventListener("input", (e) => {
-    processAccentHex("secondary", (e.target as HTMLInputElement).value);
-  });
-  el<HTMLInputElement>("f-tertiary-hex").addEventListener("input", (e) => {
-    processAccentHex("tertiary", (e.target as HTMLInputElement).value);
-  });
-  (
-    ["neutral", "neutralVariant", "error", "warning", "success"] as const
-  ).forEach((name) => {
-    el<HTMLInputElement>(FIELD_ID[name]).addEventListener("input", (e) => {
-      processFreeHex(name, (e.target as HTMLInputElement).value);
-    });
-  });
   el<HTMLInputElement>("f-autofix").addEventListener("change", (e) => {
     state.autoFix = (e.target as HTMLInputElement).checked;
     render();
