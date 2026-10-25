@@ -3,6 +3,7 @@ import type { RoleName, RoleRef, ResolvedRoles } from "../colors/roles.js";
 import type { BuiltPalette } from "../colors/palettes.js";
 
 export interface CreatePayload {
+  keyColors?: Record<PaletteName, string>;
   palettes: Record<PaletteName, BuiltPalette>;
   roles: ResolvedRoles;
   roleRefs: Record<RoleName, RoleRef>;
@@ -39,13 +40,11 @@ export interface CollectionPlanSpec {
 export interface WritePlan {
   collections: CollectionPlanSpec[];
   totalVariables: number;
-  useFallback: boolean;
 }
 
 export interface CreateResult {
   success: boolean;
   collectionsCount: number;
   variablesCount: number;
-  usedFallback: boolean;
   message: string;
 }

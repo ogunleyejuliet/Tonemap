@@ -19,12 +19,14 @@ export interface SnapshotCollection {
   modes: Record<string, string>; // modeName -> modeId
   inputsJson?: string;
   variables: SnapshotVariable[];
+  layoutVersion?: string;
 }
 
 export interface SystemSnapshot {
-  layout: "standard" | "fallback";
+  layoutVersion?: "4";
   collections: SnapshotCollection[];
   inputsJson?: string;
+  isOldLayout?: boolean;
 }
 
 export interface PaletteChange {
@@ -82,7 +84,7 @@ function normalizeHexUpper(hex: string): string {
 /**
  * Pure comparison function between an existing Figma system snapshot and a new WritePlan.
  * - Matches variables by m3gen_id (not by name) so renamed variables keep their names.
- * - Detects palette color changes, role alias target changes, added variables, and untouched extra variables.
+ * - Detects palette color changes, key color changes, role alias target changes, added variables, and untouched extra variables.
  */
 export function compareWritePlan(
   snapshot: SystemSnapshot,

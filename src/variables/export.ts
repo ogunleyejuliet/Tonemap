@@ -1,5 +1,6 @@
-import type { SystemSnapshot, SnapshotVariable, SnapshotCollection, SnapshotVariableValue } from "./compare.js";
+import type { SystemSnapshot, SnapshotVariable, SnapshotCollection } from "./compare.js";
 import type { WritePlan } from "./types.js";
+import { COLLECTION_NAMES } from "./plan.js";
 
 export interface PaletteToken {
   type: "color";
@@ -14,6 +15,7 @@ export interface RoleToken {
 }
 
 export interface ExportCounts {
+  keyColorTokens: number;
   paletteTokens: number;
   roleTokensLight: number;
   roleTokensDark: number;
@@ -27,7 +29,7 @@ export interface ExportResult {
 }
 
 /**
- * Converts a WritePlan into a SystemSnapshot structure.
+ * Converts a WritePlan into a SystemSnapshot structure for testing or exporting.
  */
 export function writePlanToSnapshot(plan: WritePlan): SystemSnapshot {
   const snapshotCols: SnapshotCollection[] = plan.collections.map((colSpec) => {
@@ -61,11 +63,12 @@ export function writePlanToSnapshot(plan: WritePlan): SystemSnapshot {
       name: colSpec.name,
       modes: modesObj,
       variables: vars,
+      layoutVersion: colSpec.pluginData?.m3gen_layout || "4",
     };
   });
 
   return {
-    layout: plan.useFallback ? "fallback" : "standard",
+    layoutVersion: "4",
     collections: snapshotCols,
   };
 }
@@ -81,7 +84,11 @@ function normalizeHex8(hex: string): string {
   return `#${clean.toLowerCase()}`;
 }
 
-function setNestedValue(obj: Record<string, unknown>, path: string[], value: PaletteToken | RoleToken): void {
+function setNestedValue(
+  obj: Record<string, unknown>,
+  path: string[],
+  value: PaletteToken | RoleToken,
+): void {
   let current = obj as Record<string, Record<string, unknown>>;
   for (let i = 0; i < path.length - 1; i++) {
     const key = path[i];
@@ -95,118 +102,105 @@ function setNestedValue(obj: Record<string, unknown>, path: string[], value: Pal
 
 /**
  * Pure exporter function. Converts a SystemSnapshot or WritePlan into tokens.json structure.
- * No figma global dependencies.
+ * Only exports collections tagged with layout version 4 ("primitives" and "color roles").
+ * No Figma global dependencies.
  */
 export function exportSnapshotToTokensJson(input: SystemSnapshot | WritePlan): ExportResult {
-  const snapshot: SystemSnapshot = "collections" in input && "layout" in input
-    ? input as SystemSnapshot
-    : writePlanToSnapshot(input as WritePlan);
+  const snapshot: SystemSnapshot =
+    "collections" in input && !("totalVariables" in input)
+      ? (input as SystemSnapshot)
+      : writePlanToSnapshot(input as WritePlan);
 
   const output: Record<string, Record<string, unknown>> = {
-    palette: {},
-    "color light": {},
-    "color dark": {},
+    [COLLECTION_NAMES.primitives]: {},
+    [COLLECTION_NAMES.colorRoles]: {},
   };
 
-  // Build palette variable maps for alias target resolution
-  const paletteVarsById = new Map<string, SnapshotVariable>();
-  const paletteVarsByName = new Map<string, SnapshotVariable>();
+  // Only export collections tagged with layout version 4 ("primitives" and "color roles")
+  const validCols = snapshot.collections.filter((col) => {
+    if (col.layoutVersion && col.layoutVersion !== "4") return false;
+    const nameLower = col.name.toLowerCase();
+    return (
+      nameLower === COLLECTION_NAMES.primitives ||
+      nameLower === COLLECTION_NAMES.colorRoles
+    );
+  });
 
-  for (const col of snapshot.collections) {
-    const isPaletteCol = col.id === "collection:palette" || col.name.toLowerCase() === "palette";
-    if (isPaletteCol) {
-      for (const v of col.variables) {
-        paletteVarsById.set(v.id, v);
-        paletteVarsByName.set(v.name, v);
-      }
+  // Map variables across collections to resolve aliases
+  const varsById = new Map<string, { colKey: string; v: SnapshotVariable }>();
+  for (const col of validCols) {
+    const colKey = col.name.toLowerCase();
+    for (const v of col.variables) {
+      varsById.set(v.id, { colKey, v });
     }
   }
 
+  let keyColorTokens = 0;
   let paletteTokens = 0;
   let roleTokensLight = 0;
   let roleTokensDark = 0;
 
-  // Helper to format role references like {palette.primary.40} or {palette.neutral variant.90}
-  function resolveRoleRef(val: SnapshotVariableValue): string {
-    if (val.type !== "ALIAS") {
-      return val.hex || "";
+  for (const col of validCols) {
+    const colKey = col.name.toLowerCase();
+    if (!output[colKey]) {
+      output[colKey] = {};
     }
 
-    let targetName = "";
-    if (val.targetId && paletteVarsById.has(val.targetId)) {
-      targetName = paletteVarsById.get(val.targetId)!.name;
-    } else if (val.targetName) {
-      targetName = val.targetName;
-    } else {
-      targetName = val.targetId || "";
-    }
+    for (const v of col.variables) {
+      const path = v.name.split("/").map((s) => s.toLowerCase());
+      const firstValKey = Object.keys(v.valuesByMode)[0];
+      const valObj = firstValKey ? v.valuesByMode[firstValKey] : undefined;
+      if (!valObj) continue;
 
-    const segments = targetName.split("/").map((s) => s.toLowerCase());
-    const refPath = segments.join(".");
-    return `{palette.${refPath}}`;
-  }
-
-  // Process collections
-  for (const col of snapshot.collections) {
-    const colNameLower = col.name.toLowerCase();
-    const isPaletteCol = col.id === "collection:palette" || colNameLower === "palette";
-
-    if (isPaletteCol) {
-      for (const v of col.variables) {
-        const path = v.name.split("/").map((s) => s.toLowerCase());
-        const firstValKey = Object.keys(v.valuesByMode)[0];
-        const valObj = firstValKey ? v.valuesByMode[firstValKey] : undefined;
-        const hex = valObj?.hex || "#000000";
+      if (valObj.type === "COLOR") {
+        const hex = valObj.hex || "#000000";
         const hex8 = normalizeHex8(hex);
-
         const token: PaletteToken = {
           type: "color",
           value: hex8,
           blendMode: "normal",
         };
+        setNestedValue(output[colKey], path, token);
+        if (path[0] === "key colors") {
+          keyColorTokens++;
+        } else if (path[0] === "color palettes") {
+          paletteTokens++;
+        }
+      } else if (valObj.type === "ALIAS") {
+        let targetColKey: string = COLLECTION_NAMES.primitives;
+        let targetName = "";
 
-        setNestedValue(output["palette"], path, token);
-        paletteTokens++;
-      }
-    } else {
-      // Role collection(s)
-      for (const v of col.variables) {
-        const path = v.name.split("/").map((s) => s.toLowerCase());
-
-        // Check Light mode
-        if (colNameLower === "color light" || colNameLower === "color") {
-          const valLight = v.valuesByMode["Light"] || (colNameLower === "color light" ? Object.values(v.valuesByMode)[0] : undefined);
-          if (valLight) {
-            const ref = resolveRoleRef(valLight);
-            const token: RoleToken = {
-              description: "",
-              type: "color",
-              value: ref,
-            };
-            setNestedValue(output["color light"], path, token);
-            roleTokensLight++;
-          }
+        if (valObj.targetId && varsById.has(valObj.targetId)) {
+          const targetInfo = varsById.get(valObj.targetId)!;
+          targetColKey = targetInfo.colKey;
+          targetName = targetInfo.v.name;
+        } else if (valObj.targetName) {
+          targetName = valObj.targetName;
+        } else {
+          targetName = valObj.targetId || "";
         }
 
-        // Check Dark mode
-        if (colNameLower === "color dark" || colNameLower === "color") {
-          const valDark = v.valuesByMode["Dark"] || (colNameLower === "color dark" ? Object.values(v.valuesByMode)[0] : undefined);
-          if (valDark) {
-            const ref = resolveRoleRef(valDark);
-            const token: RoleToken = {
-              description: "",
-              type: "color",
-              value: ref,
-            };
-            setNestedValue(output["color dark"], path, token);
-            roleTokensDark++;
-          }
+        const targetSegments = targetName.split("/").map((s) => s.toLowerCase());
+        const refPath = `${targetColKey}.${targetSegments.join(".")}`;
+        const refValue = `{${refPath}}`;
+
+        const token: RoleToken = {
+          description: "",
+          type: "color",
+          value: refValue,
+        };
+        setNestedValue(output[colKey], path, token);
+        if (path[0] === "color light") {
+          roleTokensLight++;
+        } else if (path[0] === "color dark") {
+          roleTokensDark++;
         }
       }
     }
   }
 
   const counts: ExportCounts = {
+    keyColorTokens,
     paletteTokens,
     roleTokensLight,
     roleTokensDark,

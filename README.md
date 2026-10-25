@@ -41,10 +41,9 @@ Tonemap removes that work:
 | --- | --- |
 | **Palette** | A tonal scale (tones from dark to light) generated from one input color. |
 | **Role** | A named Material 3 color with a job, such as `primary`, `on-primary`, `primary-container` or `error`. Each role points to a tone in a palette. |
-| **Mode** | Light or Dark. Each role resolves to a different tone per mode (except fixed roles, see below). |
 | **Fixed roles** | 12 roles (four each for primary, secondary, tertiary) that use the **same tone in Light and Dark**. |
-| **Color collection** | The Figma variable collection holding the roles. Either one collection with two modes, or two fallback collections (see [Layouts](#supported-layouts)). |
-| **Palette collection** | The Figma variable collection holding the palettes. Tonemap also stores your inputs on it (`m3gen_inputs`) so they can be restored. |
+| **Primitives collection** | The Figma variable collection holding `Key Colors` and `Color Palettes` with mode `Value`. Tonemap also stores your inputs on it (`m3gen_inputs`) so they can be restored. |
+| **Color Roles collection** | The Figma variable collection holding the 57 Material 3 roles grouped under `Color Light` and `Color Dark` with mode `Value`. Every role value is an alias to a variable in `Primitives`. |
 | **`m3gen_id`** | A hidden ID Tonemap stamps on every variable it creates. It lets Update find a variable even after you rename it. |
 
 ### The role set (57 roles)
@@ -187,10 +186,10 @@ flowchart TD
 | Update compared, nothing applied yet | Disabled | Enabled | Changes shown; the file is untouched until **Apply changes** |
 | Update write fails | Disabled | Enabled | All changed values are restored |
 
-### Supported layouts
+### Supported layout (Layout version 3)
 
-- One **Color** collection with two modes (Light and Dark), or
-- Two fallback collections named **Color Light** and **Color Dark**.
+- Two collections: **Primitives** and **Color Roles**, each with a single mode named **Value**.
+- If collections from older layouts exist without `m3gen_layout="3"` (layout 2 or older `Palette`, `Color`, `Color Light`, `Color Dark`), Create, Update, and Export are disabled with instructions to delete the older collections first.
 
 ---
 
@@ -292,6 +291,20 @@ The `src/colors/` system targets `@material/material-color-utilities` pinned at 
 2. **Primary keeps the seed's chroma.** Primary builds from its own HCT hue and chroma rather than muting to the library's fixed chroma 36.
 3. **Container text uses tone 30.** `on-*-container` uses tone 30 in Light mode (90 in Dark), matching current dynamic Material Theme Builder specifications.
 4. **Surface uses the newer N98/N6 values.** Background and surface use neutral tones 98 in Light and 6 in Dark.
+5. **Layout version 4 (all lowercase collections, groups, and variables):** Organizes variables into two collections: `primitives` (containing `key colors` and `color palettes`) and `color roles` (containing `color light` and `color dark` role variables directly, without an extra `color` subgroup), each with a single mode named `Value`. Every role value is an alias to a `primitives` variable.
+6. **All names lowercase and why:**
+   - **Why all names lowercase:** All collection, group, and variable names created in Figma are completely lowercase to ensure absolute consistency across Figma variable hierarchies, design token specifications (W3C Design Tokens Community Group format), style dictionary pipelines, and multi-platform consumption (CSS custom properties, Android Compose, iOS). Lowercase naming eliminates casing mismatches, casing collisions across case-insensitive filesystems, and the need for ad-hoc case conversions during token handoff, creating seamless 1:1 parity between Figma variable paths and exported token keys.
+   - **Collections:** `primitives` and `color roles`.
+   - **Groups:** `key colors`, `color palettes` (with subgroups `primary`, `secondary`, `tertiary`, `neutral`, `neutral variant`, `error`, `warning`, `success`), `color light`, and `color dark`.
+   - **Variables:** Key colors (`key colors/primary`, `key colors/neutral variant`, etc.), palette tones (`color palettes/primary/primary40`, `color palettes/neutral variant/neutral-variant40`, `color palettes/neutral/neutral4`, etc.), and roles (`color light/primary`, `color dark/on-primary`, etc.). All separators, spacing, and hyphens are preserved, only casing is made lowercase.
+   - **Single source of truth:** All name building is centralized in helper functions within `src/variables/plan.ts` (`COLLECTION_NAMES`, `keyColorVariableName`, `paletteVariableName`, `roleVariableName`), ensuring that write planning, Figma variable creation, diff/update matching, JSON export, and unit tests strictly reuse the same definitions.
+7. **Export format and token references:** Top-level keys and nested groups directly mirror the lowercase Figma layout:
+   - Palette tokens nest under `primitives > color palettes > <palette> > <prefix><tone>` (e.g. `primitives > color palettes > primary > primary40`, `primitives > color palettes > neutral variant > neutral-variant40`).
+   - Roles nest directly under mode keys: `color roles > color light > <role>` and `color roles > color dark > <role>`.
+   - Role references use `{primitives.color palettes.<palette>.<prefix><tone>}` (e.g. `{primitives.color palettes.primary.primary40}`, `{primitives.color palettes.neutral variant.neutral-variant40}`).
+8. **Layout versioning and older layouts:** `m3gen_layout` is set to `"4"`. Any file with an older layout number (tagged `m3gen="1"` with layout `"3"`, `"2"`, `"1"`, or untagged) is detected by its `m3gen` tag (not by collection name). Create, Update, and Export are disabled, and the plugin displays:
+   `"This file uses an older layout. Delete the primitives and color roles collections (or the older palette and color collections, in any capitalization), then click Create."`
+   Nothing is deleted automatically, preserving user data and designs.
 
 ---
 

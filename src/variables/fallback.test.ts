@@ -1,10 +1,11 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, beforeEach } from "vitest";
 import { buildColorSystem } from "../colors/system.js";
-import { buildCreatePayload } from "./plan.js";
+import { buildCreatePayload, COLLECTION_NAMES } from "./plan.js";
 
 interface FakeCollection {
   name: string;
   modes: Array<{ modeId: string; name: string }>;
+  variableIds: string[];
   pluginData: Map<string, string>;
   setPluginData: (k: string, v: string) => void;
   getPluginData: (k: string) => string | undefined;
@@ -14,11 +15,12 @@ interface FakeCollection {
 }
 
 interface FakeVariable {
+  id: string;
   name: string;
   collection: FakeCollection;
   resolvedType: string;
   pluginData: Map<string, string>;
-  valuesByMode: Map<string, unknown>;
+  valuesByMode: Record<string, unknown>;
   setPluginData: (k: string, v: string) => void;
   getPluginData: (k: string) => string | undefined;
   setValueForMode: (mId: string, val: unknown) => void;
@@ -27,27 +29,24 @@ interface FakeVariable {
 
 let collections: FakeCollection[] = [];
 let variables: FakeVariable[] = [];
-let addModeErrorToThrow: Error | null = null;
-let createCollectionErrorToThrow: ((name: string) => Error | null) | null = null;
 
 const figmaMock = {
   showUI: () => {},
+  notify: () => {},
   ui: {
     onmessage: null,
     postMessage: () => {},
   },
   variables: {
     getLocalVariableCollectionsAsync: async () => collections,
+    getVariableByIdAsync: async (id: string) => variables.find((v) => v.id === id) ?? null,
     createVariableCollection: (name: string) => {
-      if (createCollectionErrorToThrow) {
-        const err = createCollectionErrorToThrow(name);
-        if (err) throw err;
-      }
       const pluginData = new Map<string, string>();
       const modes = [{ modeId: "mode-default", name: "Mode 1" }];
       const col: FakeCollection = {
         name,
         modes,
+        variableIds: [],
         pluginData,
         setPluginData: (k, v) => pluginData.set(k, v),
         getPluginData: (k) => pluginData.get(k),
@@ -56,9 +55,6 @@ const figmaMock = {
           if (m) m.name = newName;
         },
         addMode: (mName: string) => {
-          if (addModeErrorToThrow) {
-            throw addModeErrorToThrow;
-          }
           const id = `mode-${modes.length + 1}`;
           modes.push({ modeId: id, name: mName });
           return id;
@@ -73,8 +69,10 @@ const figmaMock = {
     },
     createVariable: (name: string, collection: FakeCollection, type: string) => {
       const pluginData = new Map<string, string>();
-      const valuesByMode = new Map<string, unknown>();
+      const valuesByMode: Record<string, unknown> = {};
+      const vId = `var-${variables.length + 1}`;
       const v: FakeVariable = {
+        id: vId,
         name,
         collection,
         resolvedType: type,
@@ -82,17 +80,22 @@ const figmaMock = {
         valuesByMode,
         setPluginData: (k, v) => pluginData.set(k, v),
         getPluginData: (k) => pluginData.get(k),
-        setValueForMode: (mId, val) => valuesByMode.set(mId, val),
+        setValueForMode: (mId, val) => {
+          valuesByMode[mId] = val;
+        },
         remove: () => {
           const idx = variables.indexOf(v);
           if (idx !== -1) variables.splice(idx, 1);
+          const cIdx = collection.variableIds.indexOf(vId);
+          if (cIdx !== -1) collection.variableIds.splice(cIdx, 1);
         },
       };
       variables.push(v);
+      collection.variableIds.push(vId);
       return v;
     },
     createVariableAlias: (targetVar: FakeVariable) => {
-      return { type: "VARIABLE_ALIAS", id: targetVar.name };
+      return { type: "VARIABLE_ALIAS", id: targetVar.id };
     },
   },
 };
@@ -101,69 +104,106 @@ const figmaMock = {
 (globalThis as unknown as { __html__: string }).__html__ = "";
 
 // Import code.ts after setting up global figma mock
-const { createSystemInFigma } = await import("../../code.ts");
+const { createSystemInFigma, getSystemSnapshot } = await import("../../code.ts");
 
-describe("free plan fallback trigger in createSystemInFigma", () => {
+const EXPECTED_OLD_LAYOUT_ERROR =
+  "This file uses an older layout. Delete the primitives and color roles collections (or the older palette and color collections, in any capitalization), then click Create.";
+
+describe("Figma integration: layout version 4 and older layout detection", () => {
   const validSystem = buildColorSystem({ primary: "#6750A4" });
   const validPayload = buildCreatePayload(validSystem);
 
   beforeEach(() => {
     collections.length = 0;
     variables.length = 0;
-    addModeErrorToThrow = null;
-    createCollectionErrorToThrow = null;
   });
 
-  it("Path 1: addMode succeeds -> creates Standard plan with 2 collections (Palette and Color)", async () => {
+  it("creates 2 collections with layout version 4 and lowercase names on clean file", async () => {
     const res = await createSystemInFigma(validPayload);
     expect(res.success).toBe(true);
-    expect(res.usedFallback).toBe(false);
     expect(res.collectionsCount).toBe(2);
-    expect(collections.map((c) => c.name)).toEqual(["Palette", "Color"]);
-  });
+    expect(res.variablesCount).toBe(244);
 
-  it("Path 2: addMode throws any error -> rolls back standard plan, calls console.warn, and succeeds using fallback (Color Light & Color Dark)", async () => {
-    const consoleWarnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
-    addModeErrorToThrow = new Error("Plan mode limit exceeded on Figma team");
-
-    const res = await createSystemInFigma(validPayload);
-
-    expect(consoleWarnSpy).toHaveBeenCalledWith("Plan mode limit exceeded on Figma team");
-    expect(res.success).toBe(true);
-    expect(res.usedFallback).toBe(true);
-    expect(res.collectionsCount).toBe(3);
     expect(collections.map((c) => c.name)).toEqual([
-      "Palette",
-      "Color Light",
-      "Color Dark",
+      COLLECTION_NAMES.primitives,
+      COLLECTION_NAMES.colorRoles,
     ]);
-    expect(res.message).toContain("Figma said: Plan mode limit exceeded on Figma team");
+    expect(collections.map((c) => c.name)).toEqual(["primitives", "color roles"]);
+    expect(collections[0].getPluginData("m3gen_layout")).toBe("4");
+    expect(collections[1].getPluginData("m3gen_layout")).toBe("4");
+    expect(collections[0].getPluginData("m3gen")).toBe("1");
+    expect(collections[1].getPluginData("m3gen")).toBe("1");
 
-    consoleWarnSpy.mockRestore();
+    // Both collections have single mode "Value"
+    expect(collections[0].modes.map((m) => m.name)).toEqual(["Value"]);
+    expect(collections[1].modes.map((m) => m.name)).toEqual(["Value"]);
   });
 
-  it("Path 3: addMode throws AND fallback also fails -> rolls back everything and reports both errors", async () => {
-    const consoleWarnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
-    addModeErrorToThrow = new Error("First error: addMode failed");
+  it("detects layout 3 collections as old and blocks creation without deleting anything", async () => {
+    // Simulate layout 3 collections (with older capitalization Primitives / Color Roles)
+    const oldPrimitives = figmaMock.variables.createVariableCollection("Primitives");
+    oldPrimitives.setPluginData("m3gen", "1");
+    oldPrimitives.setPluginData("m3gen_id", "collection:primitives");
+    oldPrimitives.setPluginData("m3gen_layout", "3");
 
-    createCollectionErrorToThrow = (name: string) => {
-      if (name === "Color Dark") {
-        return new Error("Second error: Fallback collection creation failed");
-      }
-      return null;
-    };
+    const oldColorRoles = figmaMock.variables.createVariableCollection("Color Roles");
+    oldColorRoles.setPluginData("m3gen", "1");
+    oldColorRoles.setPluginData("m3gen_id", "collection:color_roles");
+    oldColorRoles.setPluginData("m3gen_layout", "3");
+
+    expect(collections.length).toBe(2);
+
+    // getSystemSnapshot detects old layout
+    const snapshotInfo = await getSystemSnapshot();
+    expect(snapshotInfo.isOldLayout).toBe(true);
+    expect(snapshotInfo.snapshot).toBeNull();
+
+    // createSystemInFigma rejects and shows exact required message
+    const res = await createSystemInFigma(validPayload);
+    expect(res.success).toBe(false);
+    expect(res.message).toBe(EXPECTED_OLD_LAYOUT_ERROR);
+
+    // Guarantees nothing was deleted automatically
+    expect(collections.length).toBe(2);
+    expect(collections.map((c) => c.name)).toEqual(["Primitives", "Color Roles"]);
+  });
+
+  it("detects layout 2 collections as old regardless of capitalization", async () => {
+    const oldPrimitives = figmaMock.variables.createVariableCollection("PRIMITIVES");
+    oldPrimitives.setPluginData("m3gen", "1");
+    oldPrimitives.setPluginData("m3gen_id", "collection:primitives");
+    oldPrimitives.setPluginData("m3gen_layout", "2");
+
+    const oldColorRoles = figmaMock.variables.createVariableCollection("color roles");
+    oldColorRoles.setPluginData("m3gen", "1");
+    oldColorRoles.setPluginData("m3gen_id", "collection:color_roles");
+    oldColorRoles.setPluginData("m3gen_layout", "2");
+
+    const snapshotInfo = await getSystemSnapshot();
+    expect(snapshotInfo.isOldLayout).toBe(true);
 
     const res = await createSystemInFigma(validPayload);
-
     expect(res.success).toBe(false);
-    expect(res.usedFallback).toBe(true);
-    expect(res.collectionsCount).toBe(0);
-    expect(res.variablesCount).toBe(0);
-    expect(collections.length).toBe(0);
-    expect(variables.length).toBe(0);
-    expect(res.message).toContain("Failed to create variables in fallback mode: Second error: Fallback collection creation failed");
-    expect(res.message).toContain("Figma said: First error: addMode failed");
+    expect(res.message).toBe(EXPECTED_OLD_LAYOUT_ERROR);
 
-    consoleWarnSpy.mockRestore();
+    expect(collections.length).toBe(2);
+  });
+
+  it("detects original v1 layout collections (Palette & Color in any capitalization) as old", async () => {
+    const oldPalette = figmaMock.variables.createVariableCollection("Palette");
+    oldPalette.setPluginData("m3gen", "1");
+
+    const oldColor = figmaMock.variables.createVariableCollection("Color");
+    oldColor.setPluginData("m3gen", "1");
+
+    const snapshotInfo = await getSystemSnapshot();
+    expect(snapshotInfo.isOldLayout).toBe(true);
+
+    const res = await createSystemInFigma(validPayload);
+    expect(res.success).toBe(false);
+    expect(res.message).toBe(EXPECTED_OLD_LAYOUT_ERROR);
+
+    // Nothing was deleted
+    expect(collections.length).toBe(2);
   });
 });

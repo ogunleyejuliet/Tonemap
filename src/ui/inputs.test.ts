@@ -22,6 +22,17 @@ describe("getActionButtonState pure function", () => {
     expect(res.helperText).toBe("A system has already been created. Just update or change your values.");
     expect(res.showHelper).toBe(true);
     expect(res.mode).toBe("update");
+    expect(res.disabled).toBe(false);
+  });
+
+  it("returns disabled state with older layout message when isOldLayout is true", () => {
+    const res = getActionButtonState(false, true);
+    expect(res.label).toBe("Create variables");
+    expect(res.helperText).toBe(
+      "This file uses an older layout. Delete the primitives and color roles collections (or the older palette and color collections, in any capitalization), then click Create.",
+    );
+    expect(res.showHelper).toBe(true);
+    expect(res.disabled).toBe(true);
   });
 });
 

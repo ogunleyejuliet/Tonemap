@@ -27,6 +27,7 @@ export interface ActionButtonState {
   helperText: string;
   showHelper: boolean;
   mode: "create" | "update";
+  disabled?: boolean;
 }
 
 export const INPUTS_VERSION = 1;
@@ -46,13 +47,27 @@ function isValidMethod(val: unknown): val is Method {
   return typeof val === "string" && VALID_METHODS.has(val as Method);
 }
 
-export function getActionButtonState(systemExists: boolean): ActionButtonState {
+export function getActionButtonState(
+  systemExists: boolean,
+  isOldLayout: boolean = false,
+): ActionButtonState {
+  if (isOldLayout) {
+    return {
+      label: "Create variables",
+      helperText:
+        "This file uses an older layout. Delete the primitives and color roles collections (or the older palette and color collections, in any capitalization), then click Create.",
+      showHelper: true,
+      mode: "create",
+      disabled: true,
+    };
+  }
   if (systemExists) {
     return {
       label: "Update variables",
       helperText: "A system has already been created. Just update or change your values.",
       showHelper: true,
       mode: "update",
+      disabled: false,
     };
   }
   return {
@@ -60,6 +75,7 @@ export function getActionButtonState(systemExists: boolean): ActionButtonState {
     helperText: "",
     showHelper: false,
     mode: "create",
+    disabled: false,
   };
 }
 

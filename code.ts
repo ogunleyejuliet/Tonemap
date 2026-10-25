@@ -1,6 +1,6 @@
-import { validatePayload, buildWritePlan } from "./src/variables/plan.js";
+import { validatePayload, buildWritePlan, COLLECTION_NAMES } from "./src/variables/plan.js";
 import { compareWritePlan, type SystemSnapshot, type SnapshotCollection, type SnapshotVariable } from "./src/variables/compare.js";
-import type { CreateResult, CollectionPlanSpec } from "./src/variables/types.js";
+import type { CreateResult } from "./src/variables/types.js";
 import { exportSnapshotToTokensJson } from "./src/variables/export.js";
 
 figma.showUI(__html__, { width: 900, height: 640, themeColors: true });
@@ -26,32 +26,42 @@ function figmaRgbToHex(rgb: { r: number; g: number; b: number }): string {
   return `#${r}${g}${b}`.toUpperCase();
 }
 
-class AddModeError extends Error {
-  constructor(public originalError: string) {
-    super(originalError);
-    this.name = "AddModeError";
-  }
-}
+const OLD_LAYOUT_ERROR =
+  "This file uses an older layout. Delete the primitives and color roles collections (or the older palette and color collections, in any capitalization), then click Create.";
 
-async function getSystemSnapshot(): Promise<{ snapshot: SystemSnapshot | null; paletteCol: VariableCollection | null }> {
+export async function getSystemSnapshot(): Promise<{
+  snapshot: SystemSnapshot | null;
+  primitivesCol: VariableCollection | null;
+  isOldLayout: boolean;
+}> {
   const existingCollections = await figma.variables.getLocalVariableCollectionsAsync();
   const pluginCols = existingCollections.filter((c) => c.getPluginData("m3gen") === "1");
   if (pluginCols.length === 0) {
-    return { snapshot: null, paletteCol: null };
+    return { snapshot: null, primitivesCol: null, isOldLayout: false };
   }
 
-  const paletteCol = pluginCols.find(
-    (c) => c.getPluginData("m3gen_id") === "collection:palette" || c.name === "Palette",
-  ) ?? null;
+  // Check if any old layout collections exist (tagged m3gen=1 without m3gen_layout="4")
+  const hasOldLayout = pluginCols.some((c) => c.getPluginData("m3gen_layout") !== "4");
+  if (hasOldLayout) {
+    return { snapshot: null, primitivesCol: null, isOldLayout: true };
+  }
 
-  const hasFallbackCols = pluginCols.some(
-    (c) => c.name === "Color Light" || c.name === "Color Dark",
-  );
-  const layout = hasFallbackCols ? "fallback" : "standard";
+  // Layout version 4 collections
+  const v4Cols = pluginCols.filter((c) => c.getPluginData("m3gen_layout") === "4");
+  if (v4Cols.length === 0) {
+    return { snapshot: null, primitivesCol: null, isOldLayout: false };
+  }
+
+  const primitivesCol =
+    v4Cols.find(
+      (c) =>
+        c.getPluginData("m3gen_id") === "collection:primitives" ||
+        c.name.toLowerCase() === COLLECTION_NAMES.primitives,
+    ) ?? null;
 
   const snapshotCols: SnapshotCollection[] = [];
 
-  for (const col of pluginCols) {
+  for (const col of v4Cols) {
     const colId = col.getPluginData("m3gen_id") || col.name;
     const modeIdToName = new Map<string, string>();
     for (const m of col.modes) {
@@ -95,12 +105,13 @@ async function getSystemSnapshot(): Promise<{ snapshot: SystemSnapshot | null; p
       name: col.name,
       modes: modesObj,
       variables: vars,
+      layoutVersion: col.getPluginData("m3gen_layout") || "4",
     });
   }
 
-  let inputsJson = paletteCol ? paletteCol.getPluginData("m3gen_inputs") : undefined;
+  let inputsJson = primitivesCol ? primitivesCol.getPluginData("m3gen_inputs") : undefined;
   if (!inputsJson) {
-    for (const col of pluginCols) {
+    for (const col of v4Cols) {
       const data = col.getPluginData("m3gen_inputs");
       if (data) {
         inputsJson = data;
@@ -111,11 +122,12 @@ async function getSystemSnapshot(): Promise<{ snapshot: SystemSnapshot | null; p
 
   return {
     snapshot: {
-      layout,
+      layoutVersion: "4",
       collections: snapshotCols,
       inputsJson,
     },
-    paletteCol,
+    primitivesCol,
+    isOldLayout: false,
   };
 }
 
@@ -124,17 +136,29 @@ export async function createSystemInFigma(
   inputs?: unknown,
 ): Promise<CreateResult> {
   const existingCollections = await figma.variables.getLocalVariableCollectionsAsync();
-  const forbiddenNames = new Set(["Palette", "Color", "Color Light", "Color Dark"]);
+  const pluginCols = existingCollections.filter((c) => c.getPluginData("m3gen") === "1");
 
+  // Check if old layout collections exist (detected by m3gen tag)
+  const hasOldLayout = pluginCols.some((c) => c.getPluginData("m3gen_layout") !== "4");
+  if (hasOldLayout) {
+    return {
+      success: false,
+      collectionsCount: 0,
+      variablesCount: 0,
+      message: OLD_LAYOUT_ERROR,
+    };
+  }
+
+  const forbiddenNames = new Set(["primitives", "color roles"]);
   for (const col of existingCollections) {
-    if (forbiddenNames.has(col.name)) {
-      const isPluginMade = col.getPluginData("m3gen") === "1";
+    if (forbiddenNames.has(col.name.toLowerCase())) {
+      const isPluginMade =
+        col.getPluginData("m3gen") === "1" && col.getPluginData("m3gen_layout") === "4";
       if (isPluginMade) {
         return {
           success: false,
           collectionsCount: 0,
           variablesCount: 0,
-          usedFallback: false,
           message: "A system already exists in this file. Use Update.",
         };
       } else {
@@ -142,8 +166,8 @@ export async function createSystemInFigma(
           success: false,
           collectionsCount: 0,
           variablesCount: 0,
-          usedFallback: false,
-          message: "A collection with this name already exists and was not created by this plugin. Rename it or use a blank file.",
+          message:
+            "A collection with this name already exists and was not created by this plugin. Rename it or use a blank file.",
         };
       }
     }
@@ -155,7 +179,6 @@ export async function createSystemInFigma(
       success: false,
       collectionsCount: 0,
       variablesCount: 0,
-      usedFallback: false,
       message: validation.error,
     };
   }
@@ -165,47 +188,39 @@ export async function createSystemInFigma(
 
   function rollback(): void {
     for (const v of createdVariables) {
-      try { v.remove(); } catch (_err) { /* rollback */ }
+      try {
+        v.remove();
+      } catch (_err) {
+        /* rollback */
+      }
     }
     for (const c of createdCollections) {
-      try { c.remove(); } catch (_err) { /* rollback */ }
+      try {
+        c.remove();
+      } catch (_err) {
+        /* rollback */
+      }
     }
   }
 
-  async function writeCollections(
-    planCollections: CollectionPlanSpec[],
-  ): Promise<{ variablesCount: number; collectionsCount: number }> {
+  try {
+    const plan = buildWritePlan(validation.payload);
     const varMap = new Map<string, Variable>();
-    let paletteColCreated: VariableCollection | null = null;
+    let primitivesColCreated: VariableCollection | null = null;
 
-    for (const cSpec of planCollections) {
+    for (const cSpec of plan.collections) {
       const col = figma.variables.createVariableCollection(cSpec.name);
       createdCollections.push(col);
       col.setPluginData("m3gen", "1");
-      if (cSpec.pluginData.m3gen_id) {
-        col.setPluginData("m3gen_id", cSpec.pluginData.m3gen_id);
-      }
-      if (cSpec.name === "Palette") {
-        paletteColCreated = col;
+      col.setPluginData("m3gen_id", cSpec.pluginData.m3gen_id);
+      col.setPluginData("m3gen_layout", "4");
+
+      if (cSpec.name === COLLECTION_NAMES.primitives) {
+        primitivesColCreated = col;
       }
 
-      const modeIdMap = new Map<string, string>();
       const defaultModeId = col.modes[0].modeId;
-      col.renameMode(defaultModeId, cSpec.modes[0]);
-      modeIdMap.set(cSpec.modes[0], defaultModeId);
-
-      for (let i = 1; i < cSpec.modes.length; i++) {
-        const mName = cSpec.modes[i];
-        let newModeId: string;
-        try {
-          newModeId = col.addMode(mName);
-        } catch (err) {
-          const figmaErrorText = err instanceof Error ? err.message : String(err);
-          console.warn(figmaErrorText);
-          throw new AddModeError(figmaErrorText);
-        }
-        modeIdMap.set(mName, newModeId);
-      }
+      col.renameMode(defaultModeId, "Value");
 
       for (const vSpec of cSpec.variables) {
         const v = figma.variables.createVariable(vSpec.name, col, "COLOR");
@@ -214,23 +229,21 @@ export async function createSystemInFigma(
         v.setPluginData("m3gen_id", vSpec.id);
         varMap.set(vSpec.id, v);
 
-        for (const [mName, valPlan] of Object.entries(vSpec.valuesByMode)) {
-          const mId = modeIdMap.get(mName)!;
-          if (valPlan.type === "COLOR") {
-            v.setValueForMode(mId, hexToFigmaRgb(valPlan.hex));
-          } else if (valPlan.type === "ALIAS") {
-            const targetVar = varMap.get(valPlan.targetId);
-            if (!targetVar) {
-              throw new Error(`Alias target variable not found: ${valPlan.targetId}`);
-            }
-            const alias = figma.variables.createVariableAlias(targetVar);
-            v.setValueForMode(mId, alias);
+        const valPlan = vSpec.valuesByMode["Value"];
+        if (valPlan.type === "COLOR") {
+          v.setValueForMode(defaultModeId, hexToFigmaRgb(valPlan.hex));
+        } else if (valPlan.type === "ALIAS") {
+          const targetVar = varMap.get(valPlan.targetId);
+          if (!targetVar) {
+            throw new Error(`Alias target variable not found: ${valPlan.targetId}`);
           }
+          const alias = figma.variables.createVariableAlias(targetVar);
+          v.setValueForMode(defaultModeId, alias);
         }
       }
     }
 
-    const targetCol = paletteColCreated || createdCollections[0];
+    const targetCol = primitivesColCreated || createdCollections[0];
     if (targetCol && inputs) {
       targetCol.setPluginData(
         "m3gen_inputs",
@@ -239,63 +252,27 @@ export async function createSystemInFigma(
     }
 
     return {
+      success: true,
       collectionsCount: createdCollections.length,
       variablesCount: createdVariables.length,
-    };
-  }
-
-  try {
-    const stdPlan = buildWritePlan(validation.payload, { fallback: false });
-    const res = await writeCollections(stdPlan.collections);
-    return {
-      success: true,
-      collectionsCount: res.collectionsCount,
-      variablesCount: res.variablesCount,
-      usedFallback: false,
-      message: `Created ${res.collectionsCount} collections and ${res.variablesCount} variables.`,
+      message: `Created ${createdCollections.length} collections and ${createdVariables.length} variables.`,
     };
   } catch (err) {
     rollback();
-    createdCollections.length = 0;
-    createdVariables.length = 0;
-
-    if (err instanceof AddModeError) {
-      const figmaSaid = err.originalError;
-      try {
-        const fbPlan = buildWritePlan(validation.payload, { fallback: true });
-        const res = await writeCollections(fbPlan.collections);
-        return {
-          success: true,
-          collectionsCount: res.collectionsCount,
-          variablesCount: res.variablesCount,
-          usedFallback: true,
-          message: `Created ${res.collectionsCount} collections and ${res.variablesCount} variables using Free plan fallback (Color Light & Color Dark). Figma said: ${figmaSaid}`,
-        };
-      } catch (fbErr) {
-        rollback();
-        const fbErrText = fbErr instanceof Error ? fbErr.message : String(fbErr);
-        return {
-          success: false,
-          collectionsCount: 0,
-          variablesCount: 0,
-          usedFallback: true,
-          message: `Failed to create variables in fallback mode: ${fbErrText}. Figma said: ${figmaSaid}`,
-        };
-      }
-    } else {
-      return {
-        success: false,
-        collectionsCount: 0,
-        variablesCount: 0,
-        usedFallback: false,
-        message: `Failed to create variables: ${err instanceof Error ? err.message : String(err)}`,
-      };
-    }
+    return {
+      success: false,
+      collectionsCount: 0,
+      variablesCount: 0,
+      message: `Failed to create variables: ${err instanceof Error ? err.message : String(err)}`,
+    };
   }
 }
 
 async function previewUpdateInFigma(rawPayload: unknown) {
-  const { snapshot } = await getSystemSnapshot();
+  const { snapshot, isOldLayout } = await getSystemSnapshot();
+  if (isOldLayout) {
+    return { success: false, message: OLD_LAYOUT_ERROR };
+  }
   if (!snapshot) {
     return { success: false, message: "No existing plugin system found to update." };
   }
@@ -305,9 +282,7 @@ async function previewUpdateInFigma(rawPayload: unknown) {
     return { success: false, message: validation.error };
   }
 
-  const isFallback = snapshot.layout === "fallback";
-  const plan = buildWritePlan(validation.payload, { fallback: isFallback });
-
+  const plan = buildWritePlan(validation.payload);
   const diff = compareWritePlan(snapshot, plan);
   return {
     success: true,
@@ -316,9 +291,11 @@ async function previewUpdateInFigma(rawPayload: unknown) {
 }
 
 async function applyUpdateInFigma(rawPayload: unknown, inputs?: unknown) {
-  const existingCollections = await figma.variables.getLocalVariableCollectionsAsync();
-  const pluginCols = existingCollections.filter((c) => c.getPluginData("m3gen") === "1");
-  if (pluginCols.length === 0) {
+  const { snapshot, isOldLayout, primitivesCol } = await getSystemSnapshot();
+  if (isOldLayout) {
+    return { success: false, message: OLD_LAYOUT_ERROR };
+  }
+  if (!snapshot) {
     return { success: false, message: "No existing plugin system found to update." };
   }
 
@@ -327,16 +304,14 @@ async function applyUpdateInFigma(rawPayload: unknown, inputs?: unknown) {
     return { success: false, message: validation.error };
   }
 
-  const paletteCol = pluginCols.find(
-    (c) => c.getPluginData("m3gen_id") === "collection:palette" || c.name === "Palette",
+  const plan = buildWritePlan(validation.payload);
+
+  const existingCollections = await figma.variables.getLocalVariableCollectionsAsync();
+  const pluginCols = existingCollections.filter(
+    (c) => c.getPluginData("m3gen") === "1" && c.getPluginData("m3gen_layout") === "4",
   );
 
-  const isFallback = pluginCols.some(
-    (c) => c.name === "Color Light" || c.name === "Color Dark",
-  );
-  const plan = buildWritePlan(validation.payload, { fallback: isFallback });
-
-  // Map of m3gen_id -> Variable across all plugin collections
+  // Map of m3gen_id -> Variable across all version 4 plugin collections
   const varMapByM3Id = new Map<string, Variable>();
   for (const col of pluginCols) {
     for (const vId of col.variableIds) {
@@ -353,8 +328,8 @@ async function applyUpdateInFigma(rawPayload: unknown, inputs?: unknown) {
   const newlyCreatedVariables: Variable[] = [];
   let oldInputsJson: string | undefined;
 
-  if (paletteCol) {
-    oldInputsJson = paletteCol.getPluginData("m3gen_inputs");
+  if (primitivesCol) {
+    oldInputsJson = primitivesCol.getPluginData("m3gen_inputs");
   }
 
   let updatedCount = 0;
@@ -363,33 +338,21 @@ async function applyUpdateInFigma(rawPayload: unknown, inputs?: unknown) {
   try {
     for (const cSpec of plan.collections) {
       let col = pluginCols.find(
-        (c) => (c.getPluginData("m3gen_id") && c.getPluginData("m3gen_id") === cSpec.pluginData.m3gen_id) || c.name === cSpec.name,
+        (c) =>
+          (c.getPluginData("m3gen_id") && c.getPluginData("m3gen_id") === cSpec.pluginData.m3gen_id) ||
+          c.name.toLowerCase() === cSpec.name.toLowerCase(),
       );
 
       if (!col) {
         col = figma.variables.createVariableCollection(cSpec.name);
         col.setPluginData("m3gen", "1");
-        if (cSpec.pluginData.m3gen_id) {
-          col.setPluginData("m3gen_id", cSpec.pluginData.m3gen_id);
-        }
-        const defaultModeId = col.modes[0].modeId;
-        col.renameMode(defaultModeId, cSpec.modes[0]);
-        for (let i = 1; i < cSpec.modes.length; i++) {
-          col.addMode(cSpec.modes[i]);
-        }
+        col.setPluginData("m3gen_id", cSpec.pluginData.m3gen_id);
+        col.setPluginData("m3gen_layout", "4");
+        col.renameMode(col.modes[0].modeId, "Value");
         pluginCols.push(col);
       }
 
-      const modeIdMap = new Map<string, string>();
-      for (const mName of cSpec.modes) {
-        const found = col.modes.find((m) => m.name === mName);
-        if (found) {
-          modeIdMap.set(mName, found.modeId);
-        } else {
-          const mId = col.addMode(mName);
-          modeIdMap.set(mName, mId);
-        }
-      }
+      const defaultModeId = col.modes[0].modeId;
 
       for (const vSpec of cSpec.variables) {
         let v = varMapByM3Id.get(vSpec.id);
@@ -402,30 +365,26 @@ async function applyUpdateInFigma(rawPayload: unknown, inputs?: unknown) {
           addedCount++;
         }
 
-        for (const [mName, valPlan] of Object.entries(vSpec.valuesByMode)) {
-          const mId = modeIdMap.get(mName);
-          if (!mId) continue;
+        const valPlan = vSpec.valuesByMode["Value"];
+        // Save old value for rollback
+        oldValues.push({ variable: v, modeId: defaultModeId, value: v.valuesByMode[defaultModeId] });
 
-          // Save old value for rollback
-          oldValues.push({ variable: v, modeId: mId, value: v.valuesByMode[mId] });
-
-          if (valPlan.type === "COLOR") {
-            v.setValueForMode(mId, hexToFigmaRgb(valPlan.hex));
-            updatedCount++;
-          } else if (valPlan.type === "ALIAS") {
-            const targetVar = varMapByM3Id.get(valPlan.targetId);
-            if (!targetVar) {
-              throw new Error(`Target variable for alias not found: ${valPlan.targetId}`);
-            }
-            const alias = figma.variables.createVariableAlias(targetVar);
-            v.setValueForMode(mId, alias);
-            updatedCount++;
+        if (valPlan.type === "COLOR") {
+          v.setValueForMode(defaultModeId, hexToFigmaRgb(valPlan.hex));
+          updatedCount++;
+        } else if (valPlan.type === "ALIAS") {
+          const targetVar = varMapByM3Id.get(valPlan.targetId);
+          if (!targetVar) {
+            throw new Error(`Target variable for alias not found: ${valPlan.targetId}`);
           }
+          const alias = figma.variables.createVariableAlias(targetVar);
+          v.setValueForMode(defaultModeId, alias);
+          updatedCount++;
         }
       }
     }
 
-    const targetCol = paletteCol || pluginCols[0];
+    const targetCol = primitivesCol || pluginCols[0];
     if (targetCol && inputs) {
       targetCol.setPluginData(
         "m3gen_inputs",
@@ -433,7 +392,7 @@ async function applyUpdateInFigma(rawPayload: unknown, inputs?: unknown) {
       );
     }
 
-    const message = `System updated successfully. Applied changes to Figma variables.`;
+    const message = "System updated successfully. Applied changes to Figma variables.";
     return {
       success: true,
       message,
@@ -443,13 +402,21 @@ async function applyUpdateInFigma(rawPayload: unknown, inputs?: unknown) {
   } catch (err) {
     // Transactional Rollback
     for (const v of newlyCreatedVariables) {
-      try { v.remove(); } catch (_e) { /* rollback */ }
+      try {
+        v.remove();
+      } catch (_e) {
+        /* rollback */
+      }
     }
     for (const item of oldValues) {
-      try { item.variable.setValueForMode(item.modeId, item.value as VariableValue); } catch (_e) { /* rollback */ }
+      try {
+        item.variable.setValueForMode(item.modeId, item.value as VariableValue);
+      } catch (_e) {
+        /* rollback */
+      }
     }
-    if (paletteCol && oldInputsJson !== undefined) {
-      paletteCol.setPluginData("m3gen_inputs", oldInputsJson);
+    if (primitivesCol && oldInputsJson !== undefined) {
+      primitivesCol.setPluginData("m3gen_inputs", oldInputsJson);
     }
 
     const errText = err instanceof Error ? err.message : String(err);
@@ -461,17 +428,27 @@ async function applyUpdateInFigma(rawPayload: unknown, inputs?: unknown) {
 }
 
 async function sendInitStatus() {
-  const { snapshot } = await getSystemSnapshot();
-  if (snapshot) {
+  const { snapshot, isOldLayout } = await getSystemSnapshot();
+  if (isOldLayout) {
+    figma.ui.postMessage({
+      type: "init-status",
+      systemExists: false,
+      isOldLayout: true,
+      savedInputs: null,
+      message: OLD_LAYOUT_ERROR,
+    });
+  } else if (snapshot) {
     figma.ui.postMessage({
       type: "init-status",
       systemExists: true,
+      isOldLayout: false,
       savedInputs: snapshot.inputsJson ?? null,
     });
   } else {
     figma.ui.postMessage({
       type: "init-status",
       systemExists: false,
+      isOldLayout: false,
       savedInputs: null,
     });
   }
@@ -517,7 +494,15 @@ figma.ui.onmessage = async (msg: { type: string; payload?: unknown; inputs?: unk
   }
   if (msg.type === "export-json") {
     try {
-      const { snapshot } = await getSystemSnapshot();
+      const { snapshot, isOldLayout } = await getSystemSnapshot();
+      if (isOldLayout) {
+        figma.ui.postMessage({
+          type: "export-json-result",
+          success: false,
+          message: OLD_LAYOUT_ERROR,
+        });
+        return;
+      }
       if (!snapshot) {
         figma.ui.postMessage({
           type: "export-json-result",
@@ -537,7 +522,7 @@ figma.ui.onmessage = async (msg: { type: string; payload?: unknown; inputs?: unk
       figma.ui.postMessage({
         type: "export-json-result",
         success: false,
-        message: `Failed to read variables from Figma file: ${err instanceof Error ? err.message : String(err)}`,
+        message: `Failed to export variables from Figma file: ${err instanceof Error ? err.message : String(err)}`,
       });
     }
     return;

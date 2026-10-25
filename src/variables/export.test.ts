@@ -1,22 +1,28 @@
 import { describe, it, expect } from "vitest";
 import sample from "../../Sample/tokens.json";
 import { buildColorSystem } from "../colors/index.js";
-import { buildCreatePayload, buildWritePlan } from "./plan.js";
-import { exportSnapshotToTokensJson, writePlanToSnapshot, type RoleToken } from "./export.js";
+import { buildCreatePayload, buildWritePlan, COLLECTION_NAMES } from "./plan.js";
+import {
+  exportSnapshotToTokensJson,
+  writePlanToSnapshot,
+  type RoleToken,
+} from "./export.js";
 
 interface TokenItem {
   path: string;
   token: { type: string; value: string; blendMode?: string; description?: string };
 }
 
-// Helper to extract all key paths and their values from a token object tree (ignoring "extensions")
+// Helper to extract all key paths and their values from a token object tree
 function extractTokenPaths(obj: Record<string, unknown>, current: string[] = []): TokenItem[] {
   let results: TokenItem[] = [];
   for (const key of Object.keys(obj)) {
-    if (key === "extensions") continue;
     const val = obj[key] as Record<string, unknown> | undefined;
     if (val && typeof val === "object" && typeof val.type === "string") {
-      results.push({ path: current.concat(key).join("."), token: val as unknown as TokenItem["token"] });
+      results.push({
+        path: current.concat(key).join("."),
+        token: val as unknown as TokenItem["token"],
+      });
     } else if (val && typeof val === "object") {
       results = results.concat(extractTokenPaths(val, current.concat(key)));
     }
@@ -24,168 +30,201 @@ function extractTokenPaths(obj: Record<string, unknown>, current: string[] = [])
   return results;
 }
 
-describe("JSON Exporter (exportSnapshotToTokensJson)", () => {
-  function getSamplePayload() {
-    const sys = buildColorSystem({ primary: "#6750A4" }, { secondary: "material", tertiary: "material", autoFixContrast: true });
+describe("JSON Exporter (exportSnapshotToTokensJson) - Layout Version 4", () => {
+  function getSamplePayload(primary = "#760646") {
+    const sys = buildColorSystem(
+      { primary },
+      { secondary: "material", tertiary: "material", autoFixContrast: true },
+    );
     return buildCreatePayload(sys);
   }
 
-  it("produces the same JSON shape for both standard and fallback layouts", () => {
+  it("produces correct top-level keys, counts, and removes 'color' subgroup from roles", () => {
     const payload = getSamplePayload();
-    const stdPlan = buildWritePlan(payload, { fallback: false });
-    const fbPlan = buildWritePlan(payload, { fallback: true });
-
-    const stdExport = exportSnapshotToTokensJson(stdPlan);
-    const fbExport = exportSnapshotToTokensJson(fbPlan);
-
-    expect(stdExport.jsonObject).toEqual(fbExport.jsonObject);
-    expect(stdExport.counts).toEqual(fbExport.counts);
-  });
-
-  it("ensures every role value is a reference and never a hex", () => {
-    const payload = getSamplePayload();
-    const plan = buildWritePlan(payload, { fallback: false });
+    const plan = buildWritePlan(payload);
     const res = exportSnapshotToTokensJson(plan);
 
-    const json = res.jsonObject as Record<string, Record<string, unknown>>;
-    const lightRoles = extractTokenPaths(json["color light"]);
-    const darkRoles = extractTokenPaths(json["color dark"]);
+    expect(Object.keys(res.jsonObject)).toEqual(["primitives", "color roles"]);
 
-    const allRoles = [...lightRoles, ...darkRoles];
-    expect(allRoles.length).toBeGreaterThan(0);
+    expect(res.counts.keyColorTokens).toBe(8);
+    expect(res.counts.paletteTokens).toBe(122);
+    expect(res.counts.roleTokensLight).toBe(57);
+    expect(res.counts.roleTokensDark).toBe(57);
+    expect(res.counts.totalRoleTokens).toBe(114);
 
-    for (const item of allRoles) {
-      const val = item.token.value;
-      expect(val).toMatch(/^\{palette\.[a-z0-9\s-]+\.[0-9]+\}$/);
-      expect(val).not.toMatch(/^#[0-9A-Fa-f]{6,8}$/);
+    const rolesObj = res.jsonObject["color roles"] as Record<string, Record<string, unknown>>;
+    expect(Object.keys(rolesObj)).toEqual(["color light", "color dark"]);
+
+    // Ensure roles are directly under "color light" and "color dark", without a "color" subgroup
+    expect(rolesObj["color light"]["color"]).toBeUndefined();
+    expect(rolesObj["color dark"]["color"]).toBeUndefined();
+    expect(rolesObj["color light"]["primary"]).toBeDefined();
+    expect(rolesObj["color light"]["on-primary"]).toBeDefined();
+    expect(rolesObj["color dark"]["primary"]).toBeDefined();
+  });
+
+  it("ensures key color and palette values match ^#[0-9a-f]{8}$", () => {
+    const payload = getSamplePayload();
+    const plan = buildWritePlan(payload);
+    const res = exportSnapshotToTokensJson(plan);
+
+    const primitivesObj = (res.jsonObject as Record<string, unknown>)["primitives"] as Record<string, unknown>;
+    const primTokens = extractTokenPaths(primitivesObj);
+
+    expect(primTokens.length).toBe(130); // 8 key colors + 122 palette tokens
+
+    for (const item of primTokens) {
+      expect(item.token.type).toBe("color");
+      expect(item.token.value).toMatch(/^#[0-9a-f]{8}$/);
+      expect(item.token.blendMode).toBe("normal");
     }
   });
 
-  it("ensures every role reference points to an existing palette token", () => {
+  it("ensures palette tokens are named with lowercase group name plus tone", () => {
     const payload = getSamplePayload();
-    const plan = buildWritePlan(payload, { fallback: false });
+    const plan = buildWritePlan(payload);
+    const res = exportSnapshotToTokensJson(plan);
+
+    const primitivesObj = res.jsonObject["primitives"] as Record<string, Record<string, unknown>>;
+    const palettesObj = primitivesObj["color palettes"] as Record<string, Record<string, unknown>>;
+
+    expect(palettesObj["primary"]["primary0"]).toBeDefined();
+    expect(palettesObj["primary"]["primary40"]).toBeDefined();
+    expect(palettesObj["secondary"]["secondary40"]).toBeDefined();
+    expect(palettesObj["neutral variant"]["neutral-variant50"]).toBeDefined();
+    expect(palettesObj["neutral"]["neutral4"]).toBeDefined();
+  });
+
+  it("ensures every role value matches ^{primitives.color palettes.[a-z0-9 -]+.[a-z0-9-]+[0-9]+}$ and is never a raw hex", () => {
+    const payload = getSamplePayload();
+    const plan = buildWritePlan(payload);
+    const res = exportSnapshotToTokensJson(plan);
+
+    const rolesObj = (res.jsonObject as Record<string, unknown>)["color roles"] as Record<string, unknown>;
+    const roleTokens = extractTokenPaths(rolesObj);
+
+    expect(roleTokens.length).toBe(114); // 57 light + 57 dark
+
+    for (const item of roleTokens) {
+      const val = item.token.value;
+      expect(val).toMatch(/^\{primitives\.color palettes\.[a-z0-9 -]+\.[a-z0-9-]+[0-9]+\}$/);
+      expect(val).not.toMatch(/^#[0-9A-Fa-f]{6,8}$/);
+    }
+
+    // Check specific reference formats
+    const lightRoles = rolesObj["color light"] as Record<string, { value: string }>;
+    expect(lightRoles["primary"].value).toBe("{primitives.color palettes.primary.primary40}");
+    expect(lightRoles["on-surface-variant"].value).toBe(
+      "{primitives.color palettes.neutral variant.neutral-variant30}",
+    );
+  });
+
+  it("ensures every role reference points to an existing palette token in primitives", () => {
+    const payload = getSamplePayload();
+    const plan = buildWritePlan(payload);
     const res = exportSnapshotToTokensJson(plan);
 
     const json = res.jsonObject as Record<string, Record<string, unknown>>;
-    const paletteObj = json.palette;
+    const primitivesObj = json["primitives"] as Record<string, unknown>;
+    const rolesObj = json["color roles"] as Record<string, unknown>;
 
-    const lightRoles = extractTokenPaths(json["color light"]);
-    const darkRoles = extractTokenPaths(json["color dark"]);
+    const roleTokens = extractTokenPaths(rolesObj);
 
-    for (const item of [...lightRoles, ...darkRoles]) {
+    for (const item of roleTokens) {
       const refStr = item.token.value;
-      const refClean = refStr.replace(/^\{palette\./, "").replace(/\}$/, "");
+      // Extract path after {primitives.
+      const refClean = refStr.replace(/^\{primitives\./, "").replace(/\}$/, "");
       const pathSegments = refClean.split(".");
 
-      let current: Record<string, unknown> | undefined = paletteObj;
+      let current: Record<string, unknown> | undefined = primitivesObj;
       for (const seg of pathSegments) {
         expect(current).toBeDefined();
         current = current![seg] as Record<string, unknown> | undefined;
       }
       expect(current).toBeDefined();
       expect(current!.type).toBe("color");
+      expect(current!.value).toMatch(/^#[0-9a-f]{8}$/);
     }
   });
 
-  it("uses new names for renamed variables", () => {
+  it("renamed variables use the new name in exported keys and reference targets", () => {
     const payload = getSamplePayload();
-    const plan = buildWritePlan(payload, { fallback: false });
+    const plan = buildWritePlan(payload);
     const snapshot = writePlanToSnapshot(plan);
 
-    const palCol = snapshot.collections.find((c) => c.name === "Palette")!;
-    const v40 = palCol.variables.find((v) => v.name === "Primary/40")!;
-    v40.name = "Custom Primary/40";
+    // Rename a palette variable in primitives
+    const primCol = snapshot.collections.find((c) => c.name === COLLECTION_NAMES.primitives)!;
+    const v40 = primCol.variables.find((v) => v.name === "color palettes/primary/primary40")!;
+    v40.name = "color palettes/custom brand/custom-brand40";
 
-    const colorCol = snapshot.collections.find((c) => c.name === "Color")!;
-    const vRole = colorCol.variables.find((v) => v.name === "color/primary")!;
-    vRole.name = "color/main-primary";
+    // Rename a role variable in color roles
+    const rolesCol = snapshot.collections.find((c) => c.name === COLLECTION_NAMES.colorRoles)!;
+    const vRole = rolesCol.variables.find((v) => v.name === "color light/primary")!;
+    vRole.name = "color light/main-primary";
 
     const res = exportSnapshotToTokensJson(snapshot);
-    const json = res.jsonObject as Record<string, Record<string, Record<string, RoleToken>>>;
+    const json = res.jsonObject as Record<string, Record<string, any>>;
 
-    expect(json.palette["custom primary"]?.["40"]).toBeDefined();
-    expect(json.palette.primary?.["40"]).toBeUndefined();
+    // Renamed palette variable appears under its new name
+    expect(json["primitives"]["color palettes"]["custom brand"]?.["custom-brand40"]).toBeDefined();
+    expect(json["primitives"]["color palettes"]["primary"]?.["primary40"]).toBeUndefined();
 
-    expect(json["color light"].color["main-primary"]).toBeDefined();
-    expect(json["color light"].color.primary).toBeUndefined();
+    // Renamed role variable appears directly under color light with its new name
+    expect(json["color roles"]["color light"]["main-primary"]).toBeDefined();
+    expect(json["color roles"]["color light"]["primary"]).toBeUndefined();
 
-    expect(json["color light"].color["main-primary"].value).toBe("{palette.custom primary.40}");
+    // The reference target uses the new name
+    const mainPrimaryToken = json["color roles"]["color light"]["main-primary"] as RoleToken;
+    expect(mainPrimaryToken.value).toBe("{primitives.color palettes.custom brand.custom-brand40}");
   });
 
-  it("key structure matches sample/tokens.json (palette, color light, color dark, nesting, value formats)", () => {
-    const payload = getSamplePayload();
-    const plan = buildWritePlan(payload, { fallback: false });
-    const res = exportSnapshotToTokensJson(plan);
-
-    const generated = res.jsonObject;
-    expect(Object.keys(generated)).toEqual(Object.keys(sample));
-
-    expect(res.counts.paletteTokens).toBe(122);
-    expect(res.counts.roleTokensLight).toBe(57);
-    expect(res.counts.roleTokensDark).toBe(57);
-  });
-});
-
-describe("ADDITIONAL REQUIREMENT: Exporter Comparison with Sample/tokens.json", () => {
-  it("compares exporter output with sample/tokens.json key paths and value formats", () => {
-    // The sample defines the file format only; colors and role choices depend on the inputs.
+  it("matches exported key paths with Sample/tokens.json", () => {
+    // Sample/tokens.json defines the FORMAT only (key paths, nesting, value formats), not the colors.
     const sampleObj = sample as Record<string, Record<string, unknown>>;
-    const samplePalTokens = extractTokenPaths(sampleObj.palette);
-    const sampleLightTokens = extractTokenPaths(sampleObj["color light"]);
-    const sampleDarkTokens = extractTokenPaths(sampleObj["color dark"]);
+    const sampleTokens = extractTokenPaths(sampleObj);
 
-    // Assert key path counts (ignoring extensions blocks)
-    expect(samplePalTokens.length).toBe(122);
-    expect(sampleLightTokens.length).toBe(57);
-    expect(sampleDarkTokens.length).toBe(57);
+    expect(Object.keys(sampleObj)).toEqual(["primitives", "color roles"]);
+    expect(sampleTokens.length).toBe(244); // 8 key + 122 palette + 57 light + 57 dark
 
-    const primaryObj = (sampleObj.palette.primary as Record<string, { value: string }>)["40"];
-    const samplePrimaryHex8 = primaryObj.value;
-    const samplePrimaryHex6 = samplePrimaryHex8.substring(0, 7);
-
-    const tertiaryObj = (sampleObj.palette.tertiary as Record<string, { value: string }>)["40"];
-    const sampleTertiaryHex8 = tertiaryObj.value;
-    const sampleTertiaryHex6 = sampleTertiaryHex8.substring(0, 7);
-
-    // Rebuild system from sample's primary and key colors with default settings
-    const sys = buildColorSystem(
-      { primary: samplePrimaryHex6, tertiary: sampleTertiaryHex6 },
-      { secondary: "material", tertiary: "custom", autoFixContrast: true },
-    );
-    const payload = buildCreatePayload(sys);
-    const plan = buildWritePlan(payload, { fallback: false });
+    // Export with default settings
+    const payload = getSamplePayload("#760646");
+    const plan = buildWritePlan(payload);
     const res = exportSnapshotToTokensJson(plan);
-    const generated = res.jsonObject as Record<string, Record<string, unknown>>;
+    const generatedTokens = extractTokenPaths(res.jsonObject);
 
-    const genPalTokens = extractTokenPaths(generated.palette);
-    const genLightTokens = extractTokenPaths(generated["color light"]);
-    const genDarkTokens = extractTokenPaths(generated["color dark"]);
+    expect(generatedTokens.length).toBe(244);
 
-    // Key path counts match sample/tokens.json exactly
-    expect(genPalTokens.length).toBe(122);
-    expect(genLightTokens.length).toBe(57);
-    expect(genDarkTokens.length).toBe(57);
+    const samplePaths = new Set(sampleTokens.map((t) => t.path));
+    const generatedPaths = new Set(generatedTokens.map((t) => t.path));
 
-    // Set of key paths are 100% identical
-    const samplePalPaths = new Set(samplePalTokens.map((t) => t.path));
-    const genPalPaths = new Set(genPalTokens.map((t) => t.path));
-    expect(genPalPaths).toEqual(samplePalPaths);
+    expect(generatedPaths).toEqual(samplePaths);
 
-    const sampleLightPaths = new Set(sampleLightTokens.map((t) => t.path));
-    const genLightPaths = new Set(genLightTokens.map((t) => t.path));
-    expect(genLightPaths).toEqual(sampleLightPaths);
+    // Verify format of all generated values
+    for (const item of generatedTokens) {
+      if (item.path.startsWith("primitives.")) {
+        expect(item.token.value).toMatch(/^#[0-9a-f]{8}$/);
+        expect(item.token.blendMode).toBe("normal");
+      } else if (item.path.startsWith("color roles.")) {
+        expect(item.token.value).toMatch(
+          /^\{primitives\.color palettes\.[a-z0-9 -]+\.[a-z0-9-]+[0-9]+\}$/,
+        );
+      }
+    }
+  });
 
-    const sampleDarkPaths = new Set(sampleDarkTokens.map((t) => t.path));
-    const genDarkPaths = new Set(genDarkTokens.map((t) => t.path));
-    expect(genDarkPaths).toEqual(sampleDarkPaths);
+  it("does not export collections with layout 3 or lower (treated as old)", () => {
+    const payload = getSamplePayload();
+    const plan = buildWritePlan(payload);
+    const snapshot = writePlanToSnapshot(plan);
 
-    // Value formats match
-    for (const item of genPalTokens) {
-      expect(item.token.value).toMatch(/^#[0-9a-f]{8}$/);
+    // Change layout version to 3 on collections
+    for (const col of snapshot.collections) {
+      col.layoutVersion = "3";
     }
 
-    for (const item of [...genLightTokens, ...genDarkTokens]) {
-      expect(item.token.value).toMatch(/^\{palette\.[a-z0-9\s-]+\.[0-9]+\}$/);
-    }
+    const res = exportSnapshotToTokensJson(snapshot);
+    expect(res.counts.keyColorTokens).toBe(0);
+    expect(res.counts.paletteTokens).toBe(0);
+    expect(res.counts.totalRoleTokens).toBe(0);
   });
 });

@@ -1,8 +1,20 @@
 import { describe, it, expect } from "vitest";
 import { buildColorSystem } from "../colors/system.js";
-import { validatePayload, buildWritePlan, buildCreatePayload } from "./plan.js";
+import { ROLE_DEFINITIONS, type RoleName } from "../colors/roles.js";
+import {
+  validatePayload,
+  buildWritePlan,
+  buildCreatePayload,
+  PALETTE_ORDER,
+  COLLECTION_NAMES,
+  paletteLabel,
+  palettePrefix,
+  keyColorVariableName,
+  paletteVariableName,
+  roleVariableName,
+} from "./plan.js";
 
-describe("variable write plan builder and validator", () => {
+describe("variable write plan builder and validator (layout version 4, all lowercase names)", () => {
   const validSystem = buildColorSystem({ primary: "#6750A4" });
   const validPayload = buildCreatePayload(validSystem);
 
@@ -41,84 +53,176 @@ describe("variable write plan builder and validator", () => {
     if (!res3.valid) expect(res3.error).toContain("999");
   });
 
-  it("builds the standard write plan with correct collections, counts, and names", () => {
-    const plan = buildWritePlan(validPayload, { fallback: false });
-    expect(plan.useFallback).toBe(false);
+  it("builds the layout version 4 write plan with 2 collections tagged m3gen_layout=4 and all lowercase names", () => {
+    const plan = buildWritePlan(validPayload);
     expect(plan.collections.length).toBe(2);
 
-    const paletteCol = plan.collections[0];
-    const colorCol = plan.collections[1];
+    const primitivesCol = plan.collections[0];
+    const colorRolesCol = plan.collections[1];
 
-    expect(paletteCol.name).toBe("Palette");
-    expect(paletteCol.modes).toEqual(["Value"]);
+    expect(primitivesCol.name).toBe(COLLECTION_NAMES.primitives);
+    expect(primitivesCol.name).toBe("primitives");
+    expect(primitivesCol.modes).toEqual(["Value"]);
+    expect(primitivesCol.pluginData.m3gen).toBe("1");
+    expect(primitivesCol.pluginData.m3gen_layout).toBe("4");
+    expect(primitivesCol.pluginData.m3gen_id).toBe("collection:primitives");
 
-    expect(colorCol.name).toBe("Color");
-    expect(colorCol.modes).toEqual(["Light", "Dark"]);
+    expect(colorRolesCol.name).toBe(COLLECTION_NAMES.colorRoles);
+    expect(colorRolesCol.name).toBe("color roles");
+    expect(colorRolesCol.modes).toEqual(["Value"]);
+    expect(colorRolesCol.pluginData.m3gen).toBe("1");
+    expect(colorRolesCol.pluginData.m3gen_layout).toBe("4");
+    expect(colorRolesCol.pluginData.m3gen_id).toBe("collection:color_roles");
 
-    // Check counts: 7 palettes * 14 tones + 1 palette * 24 tones = 122 palette vars; 57 role vars
-    expect(paletteCol.variables.length).toBe(122);
-    expect(colorCol.variables.length).toBe(57);
-    expect(plan.totalVariables).toBe(179);
+    // Primitives: 8 key colors + 122 palette variables = 130 variables
+    expect(primitivesCol.variables.length).toBe(130);
 
-    // Check variable naming examples
-    const primary40 = paletteCol.variables.find((v) => v.name === "Primary/40");
-    expect(primary40).toBeDefined();
-    expect(primary40?.valuesByMode.Value.type).toBe("COLOR");
+    const keyColorVars = primitivesCol.variables.filter((v) => v.name.startsWith("key colors/"));
+    expect(keyColorVars.length).toBe(8);
 
-    const nv50 = paletteCol.variables.find((v) => v.name === "Neutral Variant/50");
-    expect(nv50).toBeDefined();
+    const paletteVars = primitivesCol.variables.filter((v) => v.name.startsWith("color palettes/"));
+    expect(paletteVars.length).toBe(122);
 
-    const colorPrimary = colorCol.variables.find((v) => v.name === "color/primary");
-    expect(colorPrimary).toBeDefined();
+    // Color Roles: 57 Light variables + 57 Dark variables = 114 variables
+    expect(colorRolesCol.variables.length).toBe(114);
 
-    const colorOnPrimaryContainer = colorCol.variables.find(
-      (v) => v.name === "color/on-primary-container",
-    );
-    expect(colorOnPrimaryContainer).toBeDefined();
+    const lightRoles = colorRolesCol.variables.filter((v) => v.name.startsWith("color light/"));
+    expect(lightRoles.length).toBe(57);
+
+    const darkRoles = colorRolesCol.variables.filter((v) => v.name.startsWith("color dark/"));
+    expect(darkRoles.length).toBe(57);
+
+    // Total variables across both collections
+    expect(plan.totalVariables).toBe(244);
   });
 
-  it("ensures EVERY role variable value in standard and fallback plans is an ALIAS and not a hex color", () => {
-    const stdPlan = buildWritePlan(validPayload, { fallback: false });
-    const colorCol = stdPlan.collections[1];
+  it("asserts that no collection, group or variable name in the write plan contains an uppercase letter", () => {
+    const plan = buildWritePlan(validPayload);
 
-    for (const vSpec of colorCol.variables) {
-      expect(vSpec.valuesByMode.Light.type).toBe("ALIAS");
-      expect(vSpec.valuesByMode.Dark.type).toBe("ALIAS");
-      // Target names should refer to Palette variables
-      expect((vSpec.valuesByMode.Light as any).targetName).toMatch(/^[A-Za-z ]+\/\d+$/);
-      expect((vSpec.valuesByMode.Dark as any).targetName).toMatch(/^[A-Za-z ]+\/\d+$/);
-    }
+    for (const col of plan.collections) {
+      expect(/[A-Z]/.test(col.name)).toBe(false);
 
-    const fbPlan = buildWritePlan(validPayload, { fallback: true });
-    const lightCol = fbPlan.collections[1];
-    const darkCol = fbPlan.collections[2];
+      for (const v of col.variables) {
+        expect(/[A-Z]/.test(v.name)).toBe(false);
 
-    for (const vSpec of lightCol.variables) {
-      expect(vSpec.valuesByMode.Light.type).toBe("ALIAS");
-    }
-    for (const vSpec of darkCol.variables) {
-      expect(vSpec.valuesByMode.Dark.type).toBe("ALIAS");
+        // Check path parts (groups)
+        const parts = v.name.split("/");
+        for (const part of parts) {
+          expect(/[A-Z]/.test(part)).toBe(false);
+        }
+
+        // For aliases, check targetName
+        const modeVal = v.valuesByMode.Value;
+        if (modeVal && modeVal.type === "ALIAS") {
+          expect(/[A-Z]/.test(modeVal.targetName)).toBe(false);
+        }
+      }
     }
   });
 
-  it("builds the fallback write plan producing 3 collections", () => {
-    const plan = buildWritePlan(validPayload, { fallback: true });
-    expect(plan.useFallback).toBe(true);
-    expect(plan.collections.length).toBe(3);
+  it("checks key color variable names using centralized keyColorVariableName helper", () => {
+    const plan = buildWritePlan(validPayload);
+    const primitivesCol = plan.collections[0];
 
-    const paletteCol = plan.collections[0];
-    const lightCol = plan.collections[1];
-    const darkCol = plan.collections[2];
+    for (const pKey of PALETTE_ORDER) {
+      const expectedName = keyColorVariableName(pKey);
+      const found = primitivesCol.variables.find((v) => v.id === `key:${pKey}`);
+      expect(found).toBeDefined();
+      expect(found?.name).toBe(expectedName);
+      expect(/[A-Z]/.test(expectedName)).toBe(false);
+    }
 
-    expect(paletteCol.name).toBe("Palette");
-    expect(lightCol.name).toBe("Color Light");
-    expect(lightCol.modes).toEqual(["Light"]);
-    expect(darkCol.name).toBe("Color Dark");
-    expect(darkCol.modes).toEqual(["Dark"]);
+    expect(keyColorVariableName("primary")).toBe("key colors/primary");
+    expect(keyColorVariableName("neutralVariant")).toBe("key colors/neutral variant");
+  });
 
-    expect(paletteCol.variables.length).toBe(122);
-    expect(lightCol.variables.length).toBe(57);
-    expect(darkCol.variables.length).toBe(57);
-    expect(plan.totalVariables).toBe(236);
+  it("checks that every palette variable name equals its lowercase group name plus its tone using centralized helper", () => {
+    const plan = buildWritePlan(validPayload);
+    const primitivesCol = plan.collections[0];
+
+    const paletteVars = primitivesCol.variables.filter((v) => v.name.startsWith("color palettes/"));
+    expect(paletteVars.length).toBe(122);
+
+    for (const pKey of PALETTE_ORDER) {
+      const palette = validPayload.palettes[pKey];
+
+      for (const tone of palette.tones) {
+        const expectedName = paletteVariableName(pKey, tone);
+        const found = paletteVars.find((v) => v.id === `palette:${pKey}:${tone}`);
+        expect(found).toBeDefined();
+        expect(found?.name).toBe(expectedName);
+        expect(/[A-Z]/.test(expectedName)).toBe(false);
+      }
+    }
+
+    // Specific examples requested in prompt
+    const primary0 = primitivesCol.variables.find((v) => v.id === "palette:primary:0");
+    expect(primary0?.name).toBe("color palettes/primary/primary0");
+
+    const primary40 = primitivesCol.variables.find((v) => v.id === "palette:primary:40");
+    expect(primary40?.name).toBe("color palettes/primary/primary40");
+
+    const sec40 = primitivesCol.variables.find((v) => v.id === "palette:secondary:40");
+    expect(sec40?.name).toBe("color palettes/secondary/secondary40");
+
+    const nv40 = primitivesCol.variables.find((v) => v.id === "palette:neutralVariant:40");
+    expect(nv40?.name).toBe("color palettes/neutral variant/neutral-variant40");
+
+    const nv50 = primitivesCol.variables.find((v) => v.id === "palette:neutralVariant:50");
+    expect(nv50?.name).toBe("color palettes/neutral variant/neutral-variant50");
+
+    const n4 = primitivesCol.variables.find((v) => v.id === "palette:neutral:4");
+    expect(n4?.name).toBe("color palettes/neutral/neutral4");
+  });
+
+  it("checks that every role variable name matches roleVariableName helper without extra 'color' level", () => {
+    const plan = buildWritePlan(validPayload);
+    const colorRolesCol = plan.collections[1];
+
+    for (const roleName of Object.keys(ROLE_DEFINITIONS) as RoleName[]) {
+      const expectedLight = roleVariableName("light", roleName);
+      const lightVar = colorRolesCol.variables.find((v) => v.id === `role:light:${roleName}`);
+      expect(lightVar).toBeDefined();
+      expect(lightVar?.name).toBe(expectedLight);
+      expect(/[A-Z]/.test(expectedLight)).toBe(false);
+
+      const expectedDark = roleVariableName("dark", roleName);
+      const darkVar = colorRolesCol.variables.find((v) => v.id === `role:dark:${roleName}`);
+      expect(darkVar).toBeDefined();
+      expect(darkVar?.name).toBe(expectedDark);
+      expect(/[A-Z]/.test(expectedDark)).toBe(false);
+    }
+
+    // Examples requested in prompt
+    const lightPrimary = colorRolesCol.variables.find((v) => v.id === "role:light:primary");
+    expect(lightPrimary?.name).toBe("color light/primary");
+
+    const darkOnPrimary = colorRolesCol.variables.find((v) => v.id === "role:dark:onPrimary");
+    expect(darkOnPrimary?.name).toBe("color dark/on-primary");
+  });
+
+  it("ensures EVERY role variable value is an ALIAS to a matching lowercase color palettes variable, never a raw hex", () => {
+    const plan = buildWritePlan(validPayload);
+    const primitivesCol = plan.collections[0];
+    const colorRolesCol = plan.collections[1];
+
+    const paletteIds = new Set(primitivesCol.variables.map((v) => v.id));
+    const paletteNames = new Set(primitivesCol.variables.map((v) => v.name));
+
+    for (const vSpec of colorRolesCol.variables) {
+      expect(vSpec.valuesByMode.Value.type).toBe("ALIAS");
+      const aliasPlan = vSpec.valuesByMode.Value as {
+        type: "ALIAS";
+        targetId: string;
+        targetName: string;
+      };
+
+      // Target must exist in primitives collection color palettes
+      expect(paletteIds.has(aliasPlan.targetId)).toBe(true);
+      expect(paletteNames.has(aliasPlan.targetName)).toBe(true);
+      // Target name format: color palettes/<group>/<prefix><tone>
+      expect(aliasPlan.targetName).toMatch(/^color palettes\/[a-z ]+\/[a-z-]+[0-9]+$/);
+      expect(/[A-Z]/.test(aliasPlan.targetName)).toBe(false);
+    }
   });
 });

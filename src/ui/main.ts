@@ -515,8 +515,8 @@ function restoreSavedInputs(saved: SavedInputs): void {
 
 let currentMode: "create" | "update" = "create";
 
-function setSystemExistsUI(exists: boolean): void {
-  const actionState = getActionButtonState(exists);
+function setSystemExistsUI(exists: boolean, isOldLayout: boolean = false): void {
+  const actionState = getActionButtonState(exists, isOldLayout);
   currentMode = actionState.mode;
 
   const actionBtn = el<HTMLButtonElement>("f-action");
@@ -525,7 +525,7 @@ function setSystemExistsUI(exists: boolean): void {
   const exportBtn = el<HTMLButtonElement>("f-export");
 
   actionBtn.textContent = actionState.label;
-  actionBtn.disabled = false;
+  actionBtn.disabled = actionState.disabled ?? false;
 
   if (actionState.showHelper) {
     helperText.textContent = actionState.helperText;
@@ -535,7 +535,12 @@ function setSystemExistsUI(exists: boolean): void {
     helperText.hidden = true;
   }
 
-  if (exists) {
+  if (isOldLayout) {
+    exportBtn.disabled = true;
+    exportBtn.title =
+      "This file uses an older layout. Delete the primitives and color roles collections (or the older palette and color collections, in any capitalization), then click Create.";
+    applyBtn.disabled = true;
+  } else if (exists) {
     exportBtn.disabled = false;
     exportBtn.title = "";
   } else {
@@ -754,9 +759,17 @@ function init(): void {
     if (!msg) return;
 
     if (msg.type === "init-status") {
-      setSystemExistsUI(msg.systemExists);
-      const saved = parseSavedInputs(msg.savedInputs);
-      restoreSavedInputs(saved);
+      setSystemExistsUI(msg.systemExists, msg.isOldLayout ?? false);
+      if (msg.isOldLayout) {
+        const status = el("status");
+        status.style.color = "var(--danger)";
+        status.textContent =
+          msg.message ||
+          "This file uses an older layout. Delete the primitives and color roles collections (or the older palette and color collections, in any capitalization), then click Create.";
+      } else {
+        const saved = parseSavedInputs(msg.savedInputs);
+        restoreSavedInputs(saved);
+      }
       return;
     }
 
@@ -764,14 +777,16 @@ function init(): void {
       const res = msg.result;
       const status = el("status");
       const actionBtn = el<HTMLButtonElement>("f-action");
-      actionBtn.disabled = false;
 
       status.textContent = res.message;
       if (res.success) {
-        setSystemExistsUI(true);
+        actionBtn.disabled = false;
+        setSystemExistsUI(true, false);
         status.style.color = "var(--text)";
       } else {
-        setSystemExistsUI(false);
+        const isOld = typeof res.message === "string" && (res.message.includes("older layout") || res.message.includes("old layout"));
+        setSystemExistsUI(false, isOld);
+        actionBtn.disabled = isOld;
         status.style.color = "var(--danger)";
       }
       return;
@@ -869,7 +884,7 @@ function init(): void {
       }, 1000);
 
       status.style.color = "var(--text)";
-      status.textContent = `Exported ${res.counts.paletteTokens} palette tokens and ${res.counts.totalRoleTokens} role tokens. Choose where to save tokens.json.`;
+      status.textContent = `Exported ${res.counts.keyColorTokens} key colors, ${res.counts.paletteTokens} palette tokens and ${res.counts.totalRoleTokens} role tokens (${res.counts.roleTokensLight} light, ${res.counts.roleTokensDark} dark).`;
       return;
     }
   });

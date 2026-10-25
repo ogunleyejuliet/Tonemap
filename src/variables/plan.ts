@@ -10,6 +10,7 @@ import type {
 
 export function buildCreatePayload(system: ColorSystem): CreatePayload {
   return {
+    keyColors: system.keyColors,
     palettes: system.palettes,
     roles: system.roles,
     roleRefs: system.roleRefs,
@@ -38,8 +39,33 @@ export const PALETTE_LABELS: Record<PaletteName, string> = {
   success: "Success",
 };
 
+export const COLLECTION_NAMES = {
+  primitives: "primitives",
+  colorRoles: "color roles",
+} as const;
+
 export function kebab(name: string): string {
   return name.replace(/([a-z0-9])([A-Z])/g, "$1-$2").toLowerCase();
+}
+
+export function paletteLabel(name: PaletteName): string {
+  return PALETTE_LABELS[name].toLowerCase();
+}
+
+export function palettePrefix(name: PaletteName): string {
+  return paletteLabel(name).replace(/\s+/g, "-");
+}
+
+export function keyColorVariableName(name: PaletteName): string {
+  return `key colors/${paletteLabel(name)}`;
+}
+
+export function paletteVariableName(name: PaletteName, tone: number): string {
+  return `color palettes/${paletteLabel(name)}/${palettePrefix(name)}${tone}`;
+}
+
+export function roleVariableName(mode: "light" | "dark", role: RoleName): string {
+  return `color ${mode}/${kebab(role)}`;
 }
 
 function isValidHex(hex: unknown): boolean {
@@ -123,36 +149,53 @@ export function validatePayload(rawPayload: unknown): ValidationResult {
   return { valid: true, payload: p as CreatePayload };
 }
 
-export interface BuildPlanOptions {
-  fallback?: boolean;
-}
-
 /**
- * Pure function that turns a validated payload into a WritePlan.
- * No Figma API calls or globals.
+ * Pure function that turns a validated payload into a WritePlan for layout version 4.
+ * All collection, group, and variable names are lowercase:
+ * 1. "primitives" (modes: ["Value"], layout version: "4"), containing:
+ *    - "key colors/<label>" (8 variables)
+ *    - "color palettes/<label>/<prefix><tone>" (122 variables, e.g. color palettes/primary/primary40)
+ * 2. "color roles" (modes: ["Value"], layout version: "4"), containing:
+ *    - "color light/<role>" (57 variables, aliases to primitives)
+ *    - "color dark/<role>" (57 variables, aliases to primitives)
  */
-export function buildWritePlan(
-  payload: CreatePayload,
-  options: BuildPlanOptions = {},
-): WritePlan {
-  const useFallback = options.fallback ?? false;
+export function buildWritePlan(payload: CreatePayload): WritePlan {
+  // 1. Build "primitives" Collection Spec
+  const primitiveVariables: VariablePlanSpec[] = [];
+  const primitiveNamesSeen = new Set<string>();
 
-  // 1. Build Palette Collection Spec
-  const paletteVariables: VariablePlanSpec[] = [];
-  const paletteNamesSeen = new Set<string>();
+  // A. Key Colors
+  for (const paletteKey of PALETTE_ORDER) {
+    const varName = keyColorVariableName(paletteKey);
+    primitiveNamesSeen.add(varName);
 
+    const keyHex = payload.keyColors?.[paletteKey] ?? payload.palettes[paletteKey].keyHex;
+
+    primitiveVariables.push({
+      id: `key:${paletteKey}`,
+      name: varName,
+      resolvedType: "COLOR",
+      valuesByMode: {
+        Value: {
+          type: "COLOR",
+          hex: keyHex,
+        },
+      },
+    });
+  }
+
+  // B. Color Palettes
   for (const paletteKey of PALETTE_ORDER) {
     const palette = payload.palettes[paletteKey];
-    const paletteLabel = PALETTE_LABELS[paletteKey];
 
     for (const tone of palette.tones) {
-      const varName = `${paletteLabel}/${tone}`;
-      if (paletteNamesSeen.has(varName)) {
-        throw new Error(`Duplicate palette variable name: '${varName}'`);
+      const varName = paletteVariableName(paletteKey, tone);
+      if (primitiveNamesSeen.has(varName)) {
+        throw new Error(`Duplicate primitive variable name: '${varName}'`);
       }
-      paletteNamesSeen.add(varName);
+      primitiveNamesSeen.add(varName);
 
-      paletteVariables.push({
+      primitiveVariables.push({
         id: `palette:${paletteKey}:${tone}`,
         name: varName,
         resolvedType: "COLOR",
@@ -166,140 +209,85 @@ export function buildWritePlan(
     }
   }
 
-  const paletteCollectionSpec: CollectionPlanSpec = {
-    id: "collection:palette",
-    name: "Palette",
+  const primitivesCollectionSpec: CollectionPlanSpec = {
+    id: "collection:primitives",
+    name: COLLECTION_NAMES.primitives,
     modes: ["Value"],
-    variables: paletteVariables,
+    variables: primitiveVariables,
     pluginData: {
       m3gen: "1",
-      m3gen_id: "collection:palette",
+      m3gen_id: "collection:primitives",
+      m3gen_layout: "4",
     },
   };
 
+  // 2. Build "color roles" Collection Spec
   const roleNames = Object.keys(ROLE_DEFINITIONS) as RoleName[];
+  const roleVariables: VariablePlanSpec[] = [];
+  const roleNamesSeen = new Set<string>();
 
-  if (!useFallback) {
-    // 2. Standard Plan: Single "Color" collection with modes ["Light", "Dark"]
-    const colorVariables: VariablePlanSpec[] = [];
-    const colorNamesSeen = new Set<string>();
-
-    for (const role of roleNames) {
-      const ref = payload.roleRefs[role];
-      const varName = `color/${kebab(role)}`;
-      if (colorNamesSeen.has(varName)) {
-        throw new Error(`Duplicate color variable name: '${varName}'`);
-      }
-      colorNamesSeen.add(varName);
-
-      const lightLabel = PALETTE_LABELS[ref.palette];
-      const darkLabel = PALETTE_LABELS[ref.palette];
-
-      colorVariables.push({
-        id: `role:${role}`,
-        name: varName,
-        resolvedType: "COLOR",
-        valuesByMode: {
-          Light: {
-            type: "ALIAS",
-            targetId: `palette:${ref.palette}:${ref.lightTone}`,
-            targetName: `${lightLabel}/${ref.lightTone}`,
-          },
-          Dark: {
-            type: "ALIAS",
-            targetId: `palette:${ref.palette}:${ref.darkTone}`,
-            targetName: `${darkLabel}/${ref.darkTone}`,
-          },
-        },
-      });
+  // A. Color Light roles
+  for (const role of roleNames) {
+    const ref = payload.roleRefs[role];
+    const varName = roleVariableName("light", role);
+    if (roleNamesSeen.has(varName)) {
+      throw new Error(`Duplicate role variable name: '${varName}'`);
     }
+    roleNamesSeen.add(varName);
 
-    const colorCollectionSpec: CollectionPlanSpec = {
-      id: "collection:color",
-      name: "Color",
-      modes: ["Light", "Dark"],
-      variables: colorVariables,
-      pluginData: {
-        m3gen: "1",
-        m3gen_id: "collection:color",
-      },
-    };
-
-    const totalVariables = paletteVariables.length + colorVariables.length;
-
-    return {
-      collections: [paletteCollectionSpec, colorCollectionSpec],
-      totalVariables,
-      useFallback: false,
-    };
-  } else {
-    // 3. Fallback Plan: "Color Light" and "Color Dark" collections
-    const lightVariables: VariablePlanSpec[] = [];
-    const darkVariables: VariablePlanSpec[] = [];
-
-    for (const role of roleNames) {
-      const ref = payload.roleRefs[role];
-      const varName = `color/${kebab(role)}`;
-
-      const lightLabel = PALETTE_LABELS[ref.palette];
-      const darkLabel = PALETTE_LABELS[ref.palette];
-
-      lightVariables.push({
-        id: `role:${role}:light`,
-        name: varName,
-        resolvedType: "COLOR",
-        valuesByMode: {
-          Light: {
-            type: "ALIAS",
-            targetId: `palette:${ref.palette}:${ref.lightTone}`,
-            targetName: `${lightLabel}/${ref.lightTone}`,
-          },
+    roleVariables.push({
+      id: `role:light:${role}`,
+      name: varName,
+      resolvedType: "COLOR",
+      valuesByMode: {
+        Value: {
+          type: "ALIAS",
+          targetId: `palette:${ref.palette}:${ref.lightTone}`,
+          targetName: paletteVariableName(ref.palette, ref.lightTone),
         },
-      });
-
-      darkVariables.push({
-        id: `role:${role}:dark`,
-        name: varName,
-        resolvedType: "COLOR",
-        valuesByMode: {
-          Dark: {
-            type: "ALIAS",
-            targetId: `palette:${ref.palette}:${ref.darkTone}`,
-            targetName: `${darkLabel}/${ref.darkTone}`,
-          },
-        },
-      });
-    }
-
-    const colorLightSpec: CollectionPlanSpec = {
-      id: "collection:color_light",
-      name: "Color Light",
-      modes: ["Light"],
-      variables: lightVariables,
-      pluginData: {
-        m3gen: "1",
-        m3gen_id: "collection:color_light",
       },
-    };
-
-    const colorDarkSpec: CollectionPlanSpec = {
-      id: "collection:color_dark",
-      name: "Color Dark",
-      modes: ["Dark"],
-      variables: darkVariables,
-      pluginData: {
-        m3gen: "1",
-        m3gen_id: "collection:color_dark",
-      },
-    };
-
-    const totalVariables =
-      paletteVariables.length + lightVariables.length + darkVariables.length;
-
-    return {
-      collections: [paletteCollectionSpec, colorLightSpec, colorDarkSpec],
-      totalVariables,
-      useFallback: true,
-    };
+    });
   }
+
+  // B. Color Dark roles
+  for (const role of roleNames) {
+    const ref = payload.roleRefs[role];
+    const varName = roleVariableName("dark", role);
+    if (roleNamesSeen.has(varName)) {
+      throw new Error(`Duplicate role variable name: '${varName}'`);
+    }
+    roleNamesSeen.add(varName);
+
+    roleVariables.push({
+      id: `role:dark:${role}`,
+      name: varName,
+      resolvedType: "COLOR",
+      valuesByMode: {
+        Value: {
+          type: "ALIAS",
+          targetId: `palette:${ref.palette}:${ref.darkTone}`,
+          targetName: paletteVariableName(ref.palette, ref.darkTone),
+        },
+      },
+    });
+  }
+
+  const colorRolesCollectionSpec: CollectionPlanSpec = {
+    id: "collection:color_roles",
+    name: COLLECTION_NAMES.colorRoles,
+    modes: ["Value"],
+    variables: roleVariables,
+    pluginData: {
+      m3gen: "1",
+      m3gen_id: "collection:color_roles",
+      m3gen_layout: "4",
+    },
+  };
+
+  const totalVariables = primitiveVariables.length + roleVariables.length;
+
+  return {
+    collections: [primitivesCollectionSpec, colorRolesCollectionSpec],
+    totalVariables,
+  };
 }
