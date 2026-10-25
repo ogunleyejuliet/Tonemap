@@ -399,35 +399,45 @@ describe("warning/success role tones", () => {
   });
 });
 
-describe("secondary/tertiary tone-40 lock", () => {
+describe("secondary and tertiary palette generation (no tone 40 lock)", () => {
   const PRIMARY = "#6750A4";
 
-  it("locks Secondary/40 and Tertiary/40 to the typed hex in custom mode", () => {
+  it("builds secondary and tertiary from hue and chroma in custom mode with no tone replaced (including tone 40)", () => {
     const sys = buildColorSystem(
       { primary: PRIMARY, secondary: "#123456", tertiary: "#ABCDEF" },
       { secondary: "custom", tertiary: "custom", autoFixContrast: false },
     );
-    expect(sys.palettes.secondary.hex[40]).toBe("#123456");
-    expect(sys.palettes.tertiary.hex[40]).toBe("#ABCDEF");
-    expect(sys.roles.light.secondary).toBe("#123456");
-    expect(sys.roles.light.tertiary).toBe("#ABCDEF");
-    expect(sys.roleRefs.secondary.lightTone).toBe(40);
-    expect(sys.roleRefs.tertiary.lightTone).toBe(40);
+    for (const role of ["secondary", "tertiary"] as const) {
+      expect(sys.palettes[role].tones.length).toBe(14);
+      const keyHex = sys.keyColors[role];
+      const hct = Hct.fromInt(hexToArgb(keyHex));
+      const natural = TonalPalette.fromHueAndChroma(hct.hue, hct.chroma);
+      for (const t of STANDARD_TONES) {
+        expect(sys.palettes[role].hex[t], `${role} T${t}`).toBe(
+          argbToHex(natural.tone(t)),
+        );
+      }
+      expect(sys.palettes[role].hex[40]).toBe(argbToHex(natural.tone(40)));
+    }
   });
 
-  it("locks to harmony-derived hexes in harmony mode", () => {
+  it("builds secondary and tertiary from hue and chroma in harmony preset mode with no tone replaced (including tone 40)", () => {
     const sys = buildColorSystem(
       { primary: PRIMARY },
       { secondary: "analogous", tertiary: "triadic", autoFixContrast: false },
     );
-    const sHex = harmonyKeyColor(PRIMARY, "analogous");
-    const tHex = harmonyKeyColor(PRIMARY, "triadic");
-    expect(sys.keyColors.secondary).toBe(sHex);
-    expect(sys.keyColors.tertiary).toBe(tHex);
-    expect(sys.palettes.secondary.hex[40]).toBe(sHex);
-    expect(sys.palettes.tertiary.hex[40]).toBe(tHex);
-    expect(sys.roles.light.secondary).toBe(sHex);
-    expect(sys.roles.light.tertiary).toBe(tHex);
+    for (const role of ["secondary", "tertiary"] as const) {
+      expect(sys.palettes[role].tones.length).toBe(14);
+      const keyHex = sys.keyColors[role];
+      const hct = Hct.fromInt(hexToArgb(keyHex));
+      const natural = TonalPalette.fromHueAndChroma(hct.hue, hct.chroma);
+      for (const t of STANDARD_TONES) {
+        expect(sys.palettes[role].hex[t], `${role} T${t}`).toBe(
+          argbToHex(natural.tone(t)),
+        );
+      }
+      expect(sys.palettes[role].hex[40]).toBe(argbToHex(natural.tone(40)));
+    }
   });
 
   it("uses the library palette untouched in Material default mode", () => {
@@ -448,30 +458,6 @@ describe("secondary/tertiary tone-40 lock", () => {
     expect(materialPaletteTone40(PRIMARY, "tertiary")).toBe(
       sys.palettes.tertiary.hex[40],
     );
-  });
-
-  it("changes no other tone when locking", () => {
-    const sys = buildColorSystem(
-      { primary: PRIMARY, secondary: "#1A56DB", tertiary: "#7A5900" },
-      { secondary: "custom", tertiary: "custom", autoFixContrast: false },
-    );
-    const cases = [
-      ["secondary", "#1A56DB"],
-      ["tertiary", "#7A5900"],
-    ] as const;
-    for (const [name, keyHex] of cases) {
-      const hct = Hct.fromInt(hexToArgb(keyHex));
-      const natural = TonalPalette.fromHueAndChroma(hct.hue, hct.chroma);
-      for (const t of STANDARD_TONES) {
-        if (t === 40) {
-          expect(sys.palettes[name].hex[t], `${name} T${t}`).toBe(keyHex);
-        } else {
-          expect(sys.palettes[name].hex[t], `${name} T${t}`).toBe(
-            argbToHex(natural.tone(t)),
-          );
-        }
-      }
-    }
   });
 
   it("leaves error, warning and success unlocked", () => {
@@ -496,23 +482,6 @@ describe("secondary/tertiary tone-40 lock", () => {
       expect(sys.roleRefs[role].darkTone).toBe(80);
       expect(sys.roles.dark[role]).toBe(sys.palettes[role].hex[80]);
     }
-  });
-
-  it("reports measured tones and warns when a locked color is far from 40", () => {
-    const sys = buildColorSystem(
-      { primary: PRIMARY, secondary: "#D8F3DC", tertiary: "#1A56DB" },
-      { secondary: "custom", tertiary: "custom", autoFixContrast: false },
-    );
-    expect(sys.secondaryMeasuredTone).toBeGreaterThan(50);
-    expect(sys.secondaryWarning).toBe(
-      "This color sits near tone 93, so the shade strip may look out of order. " +
-        "It is still Secondary/40.",
-    );
-    expect(sys.tertiaryWarning).toBeNull();
-    // Material mode reports no warning.
-    const mat = buildColorSystem({ primary: PRIMARY }, { autoFixContrast: false });
-    expect(mat.secondaryWarning).toBeNull();
-    expect(mat.tertiaryWarning).toBeNull();
   });
 });
 

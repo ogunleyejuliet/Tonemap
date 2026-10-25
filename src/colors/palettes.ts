@@ -34,25 +34,17 @@ export interface BuildPalettesResult {
   primaryMeasuredTone: number;
   /** Non-null when the measured tone is more than ~10 away from 40. */
   primaryWarning: string | null;
-  /** Measured HCT tone of the secondary key hex (locked or material). */
-  secondaryMeasuredTone: number;
-  /** Non-null when secondary is locked and its tone is >~10 away from 40. */
-  secondaryWarning: string | null;
-  /** Measured HCT tone of the tertiary key hex (locked or material). */
-  tertiaryMeasuredTone: number;
-  /** Non-null when tertiary is locked and its tone is >~10 away from 40. */
-  tertiaryWarning: string | null;
 }
 
-/** "locked": palette from the key hex with tone 40 set to it. "material": library palette untouched. */
-export type AccentPaletteMode = "locked" | "material";
+/** "material": library tonal-spot palette untouched. "custom": palette built from key color's hue and chroma. */
+export type AccentPaletteMode = "material" | "custom";
 
 export interface BuildPalettesOptions {
   /** Default true. Set false to skip the primary lock (used for library comparisons). */
   applyPrimaryLock?: boolean;
-  /** Default "locked". "material" uses the library tonal-spot palette as-is. */
+  /** Default "custom". "material" uses the library tonal-spot palette as-is. */
   secondaryMode?: AccentPaletteMode;
-  /** Default "locked". "material" uses the library tonal-spot palette as-is. */
+  /** Default "custom". "material" uses the library tonal-spot palette as-is. */
   tertiaryMode?: AccentPaletteMode;
 }
 
@@ -90,34 +82,24 @@ function samplePalette(
   };
 }
 
-function lockWarning(paletteLabel: string, measuredTone: number): string | null {
-  const distance = Math.abs(measuredTone - 40);
-  if (distance <= 10) return null;
-  return (
-    `This color sits near tone ${Math.round(measuredTone)}, ` +
-    `so the shade strip may look out of order. ` +
-    `It is still ${paletteLabel}/40.`
-  );
-}
-
 /**
  * Build a TonalPalette for every key color.
  * The primary lock (default) sets tone 40 of the primary palette to exactly
  * the typed hex so the seed color survives untouched. Secondary and tertiary
- * lock the same way in "locked" mode (harmony/custom hexes); in "material"
- * mode the library tonal-spot palette is sampled untouched. Error, warning
- * and success are never locked. Dark roles always stay at tone 80.
+ * are always built from the HCT hue and chroma of their key color (with
+ * TonalPalette.fromHueAndChroma in custom/harmony modes, or sampled untouched
+ * from the library tonal-spot palette in "material" mode), and no tone is
+ * replaced. Error, warning and success are never locked. Dark roles always
+ * stay at tone 80.
  */
 export function buildPalettes(
   keyColors: ResolvedKeyColors,
   options: BuildPalettesOptions = {},
 ): BuildPalettesResult {
   const applyPrimaryLock = options.applyPrimaryLock ?? true;
-  const secondaryMode = options.secondaryMode ?? "locked";
-  const tertiaryMode = options.tertiaryMode ?? "locked";
+  const secondaryMode = options.secondaryMode ?? "custom";
+  const tertiaryMode = options.tertiaryMode ?? "custom";
 
-  const secondaryHct = Hct.fromInt(hexToArgb(keyColors.secondary));
-  const tertiaryHct = Hct.fromInt(hexToArgb(keyColors.tertiary));
   const secondaryLibrary =
     secondaryMode === "material"
       ? librarySecondaryPalette(keyColors.primary)
@@ -161,12 +143,6 @@ export function buildPalettes(
   if (applyPrimaryLock) {
     palettes.primary.hex[40] = keyColors.primary;
   }
-  if (secondaryMode === "locked") {
-    palettes.secondary.hex[40] = keyColors.secondary;
-  }
-  if (tertiaryMode === "locked") {
-    palettes.tertiary.hex[40] = keyColors.tertiary;
-  }
 
   const primaryMeasuredTone = Hct.fromInt(hexToArgb(keyColors.primary)).tone;
   const primaryDistance = Math.abs(primaryMeasuredTone - 40);
@@ -177,21 +153,10 @@ export function buildPalettes(
         `so surrounding tones may look uneven.`
       : null;
 
-  const secondaryMeasuredTone = secondaryHct.tone;
-  const secondaryWarning =
-    secondaryMode === "locked" ? lockWarning("Secondary", secondaryMeasuredTone) : null;
-  const tertiaryMeasuredTone = tertiaryHct.tone;
-  const tertiaryWarning =
-    tertiaryMode === "locked" ? lockWarning("Tertiary", tertiaryMeasuredTone) : null;
-
   return {
     palettes,
     primaryMeasuredTone,
     primaryWarning,
-    secondaryMeasuredTone,
-    secondaryWarning,
-    tertiaryMeasuredTone,
-    tertiaryWarning,
   };
 }
 

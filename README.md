@@ -18,8 +18,9 @@ Pick your brand colors once. Tonemap builds the tonal palettes, resolves every M
 8. [Getting started](#getting-started)
 9. [Project structure and architecture](#project-structure-and-architecture)
 10. [Testing](#testing)
-11. [Status and roadmap](#status-and-roadmap)
-12. [FAQ](#faq)
+11. [Decisions](#decisions)
+12. [Status and roadmap](#status-and-roadmap)
+13. [FAQ](#faq)
 
 ---
 
@@ -280,6 +281,17 @@ Tests run with **Vitest**. Notable coverage:
 - The Update comparison, as a pure function.
 - Fixed roles, compared against the Material library's tonal spot scheme.
 - Type checking is part of `npm test`, because Vitest alone does not check types.
+
+---
+
+## Decisions
+
+The `src/colors/` system targets `@material/material-color-utilities` pinned at `0.3.0`, with these key architectural decisions:
+
+1. **Only primary is locked; secondary and tertiary follow Material.** Primary locks tone 40 to the typed hex so the seed brand color survives untouched. Secondary and tertiary palettes are always built from the HCT hue and chroma of their key color (using `TonalPalette.fromHueAndChroma` in custom/harmony modes, or sampled untouched from the library tonal-spot palette in "Material default" mode), and no tone is replaced. Error, warning, and success are never locked.
+2. **Primary keeps the seed's chroma.** Primary builds from its own HCT hue and chroma rather than muting to the library's fixed chroma 36.
+3. **Container text uses tone 30.** `on-*-container` uses tone 30 in Light mode (90 in Dark), matching current dynamic Material Theme Builder specifications.
+4. **Surface uses the newer N98/N6 values.** Background and surface use neutral tones 98 in Light and 6 in Dark.
 
 ---
 
