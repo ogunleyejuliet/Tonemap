@@ -199,6 +199,7 @@ function render(): void {
     return;
   }
   renderTone();
+  renderLockNotes(sys);
   renderPalettes(sys);
   renderRoles(sys);
   renderContrast(sys);
@@ -223,6 +224,22 @@ function renderTone(): void {
     note.hidden = true;
     note.textContent = "";
   }
+}
+
+function showLockNote(inputId: string, warning: string | null): void {
+  const note = el(`${inputId}-note`);
+  if (warning === null) {
+    note.hidden = true;
+    note.textContent = "";
+  } else {
+    note.hidden = false;
+    note.textContent = warning;
+  }
+}
+
+/** Lock notes for secondary (null in Material mode or within 10 of tone 40). */
+function renderLockNotes(sys: ColorSystem): void {
+  showLockNote(FIELD_ID.secondary, sys.secondaryWarning);
 }
 
 function swatchButton(
@@ -264,7 +281,8 @@ function renderPalettes(sys: ColorSystem): void {
       const strip = document.createElement("div");
       strip.className = "strip";
       for (const t of tones) {
-        const lockedAccent = name === "primary" && t === 40;
+        const lockedAccent =
+          (name === "primary" || name === "secondary") && t === 40;
         strip.appendChild(
           swatchButton(
             lockedAccent ? `${t} · your color` : String(t),

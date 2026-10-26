@@ -287,7 +287,7 @@ Tests run with **Vitest**. Notable coverage:
 
 The `src/colors/` system targets `@material/material-color-utilities` pinned at `0.3.0`, with these key architectural decisions:
 
-1. **Only primary is locked; secondary and tertiary follow Material.** Primary locks tone 40 to the typed hex so the seed brand color survives untouched. Secondary and tertiary palettes are always built from the HCT hue and chroma of their key color (using `TonalPalette.fromHueAndChroma` in custom/harmony modes, or sampled untouched from the library tonal-spot palette in "Material default" mode), and no tone is replaced. Error, warning, and success are never locked.
+1. **Primary and secondary are locked at tone 40; tertiary follows Material.** Primary locks tone 40 to the typed hex so the seed brand color survives untouched. Secondary locks tone 40 to the hex in the secondary field across Material default, harmony presets, and custom hex alike. Tertiary palette follows Material (built from its key color's hue and chroma, nothing replaced). Error, warning, and success are never locked.
 2. **Primary keeps the seed's chroma.** Primary builds from its own HCT hue and chroma rather than muting to the library's fixed chroma 36.
 3. **Container text uses tone 30.** `on-*-container` uses tone 30 in Light mode (90 in Dark), matching current dynamic Material Theme Builder specifications.
 4. **Surface uses the newer N98/N6 values.** Background and surface use neutral tones 98 in Light and 6 in Dark.

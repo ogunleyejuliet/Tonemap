@@ -27,6 +27,8 @@ export interface ColorSystem {
   palettes: BuildPalettesResult["palettes"];
   primaryMeasuredTone: number;
   primaryWarning: string | null;
+  secondaryMeasuredTone: number;
+  secondaryWarning: string | null;
   roles: ResolvedRoles;
   roleRefs: Record<RoleName, RoleRef>;
   fixes: ContrastFix[];
@@ -34,8 +36,8 @@ export interface ColorSystem {
 }
 
 /**
- * Build the full color system: key colors -> tonal palettes (primary tone-40
- * lock; secondary/tertiary follow Material or custom/harmony hue+chroma
+ * Build the full color system: key colors -> tonal palettes (primary & secondary
+ * tone-40 lock; tertiary follows Material or custom/harmony hue+chroma
  * without locking; library palettes untouched in "Material default" mode)
  * -> roles -> WCAG auto-fix. Pure color math, no figma API.
  */
@@ -57,6 +59,8 @@ export function buildColorSystem(
     palettes,
     primaryMeasuredTone,
     primaryWarning,
+    secondaryMeasuredTone,
+    secondaryWarning,
   } = buildPalettes(keyColors, {
     applyPrimaryLock: options.applyPrimaryLock ?? true,
     secondaryMode: secondaryMethod === "material" ? "material" : "custom",
@@ -70,6 +74,8 @@ export function buildColorSystem(
     palettes,
     primaryMeasuredTone,
     primaryWarning,
+    secondaryMeasuredTone,
+    secondaryWarning,
     roles,
     roleRefs,
     fixes,

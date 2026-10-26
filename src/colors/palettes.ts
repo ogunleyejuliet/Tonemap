@@ -34,6 +34,10 @@ export interface BuildPalettesResult {
   primaryMeasuredTone: number;
   /** Non-null when the measured tone is more than ~10 away from 40. */
   primaryWarning: string | null;
+  /** Measured HCT tone of the secondary key hex. */
+  secondaryMeasuredTone: number;
+  /** Non-null when secondary tone is >~10 away from 40. */
+  secondaryWarning: string | null;
 }
 
 /** "material": library tonal-spot palette untouched. "custom": palette built from key color's hue and chroma. */
@@ -84,13 +88,11 @@ function samplePalette(
 
 /**
  * Build a TonalPalette for every key color.
- * The primary lock (default) sets tone 40 of the primary palette to exactly
- * the typed hex so the seed color survives untouched. Secondary and tertiary
- * are always built from the HCT hue and chroma of their key color (with
- * TonalPalette.fromHueAndChroma in custom/harmony modes, or sampled untouched
- * from the library tonal-spot palette in "material" mode), and no tone is
- * replaced. Error, warning and success are never locked. Dark roles always
- * stay at tone 80.
+ * The primary and secondary locks set tone 40 to exactly their key color hex
+ * so the seed colors survive untouched. Tertiary is built from the HCT hue and chroma
+ * of its key color (with TonalPalette.fromHueAndChroma in custom/harmony modes, or sampled
+ * untouched from the library tonal-spot palette in "material" mode), and no tone is replaced.
+ * Error, warning and success are never locked. Dark roles always stay at tone 80.
  */
 export function buildPalettes(
   keyColors: ResolvedKeyColors,
@@ -143,6 +145,7 @@ export function buildPalettes(
   if (applyPrimaryLock) {
     palettes.primary.hex[40] = keyColors.primary;
   }
+  palettes.secondary.hex[40] = keyColors.secondary;
 
   const primaryMeasuredTone = Hct.fromInt(hexToArgb(keyColors.primary)).tone;
   const primaryDistance = Math.abs(primaryMeasuredTone - 40);
@@ -153,10 +156,19 @@ export function buildPalettes(
         `so surrounding tones may look uneven.`
       : null;
 
+  const secondaryMeasuredTone = Hct.fromInt(hexToArgb(keyColors.secondary)).tone;
+  const secondaryDistance = Math.abs(secondaryMeasuredTone - 40);
+  const secondaryWarning =
+    secondaryDistance > 10
+      ? `This color sits near tone ${Math.round(secondaryMeasuredTone)}, so the shade strip may look out of order. It is still secondary40.`
+      : null;
+
   return {
     palettes,
     primaryMeasuredTone,
     primaryWarning,
+    secondaryMeasuredTone,
+    secondaryWarning,
   };
 }
 

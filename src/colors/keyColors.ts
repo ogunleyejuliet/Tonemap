@@ -172,7 +172,7 @@ function materialDefaults(primaryHex: string): {
   const primaryHct = Hct.fromInt(hexToArgb(primaryHex));
   const spot = new SchemeTonalSpot(primaryHct, false, 0);
   return {
-    secondary: argbToHex(spot.secondaryPalette.keyColor.toInt()),
+    secondary: argbToHex(spot.secondaryPalette.tone(40)),
     tertiary: argbToHex(spot.tertiaryPalette.keyColor.toInt()),
     neutral: argbToHex(spot.neutralPalette.keyColor.toInt()),
     neutralVariant: argbToHex(spot.neutralVariantPalette.keyColor.toInt()),
