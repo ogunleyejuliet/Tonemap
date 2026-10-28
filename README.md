@@ -42,13 +42,13 @@ Tonemap removes that work:
 | **Palette** | A tonal scale (tones from dark to light) generated from one input color. |
 | **Role** | A named Material 3 color with a job, such as `primary`, `on-primary`, `primary-container` or `error`. Each role points to a tone in a palette. |
 | **Fixed roles** | 12 roles (four each for primary, secondary, tertiary) that use the **same tone in Light and Dark**. |
-| **Primitives collection** | The Figma variable collection holding `Key Colors` and `Color Palettes` with mode `Value`. Tonemap also stores your inputs on it (`m3gen_inputs`) so they can be restored. |
-| **Color Roles collection** | The Figma variable collection holding the 57 Material 3 roles grouped under `Color Light` and `Color Dark` with mode `Value`. Every role value is an alias to a variable in `Primitives`. |
+| **Primitives collection** | The Figma variable collection holding `Key Colors` (8 default, 9 with accent) and `Color Palettes` (122 default, 136 with accent) with mode `Value`. Tonemap also stores your inputs on it (`m3gen_inputs`) so they can be restored. |
+| **Color Roles collection** | The Figma variable collection holding the 57 Material 3 roles (61 with accent) grouped under `Color Light` and `Color Dark` with mode `Value`. Every role value is an alias to a variable in `Primitives`. |
 | **`m3gen_id`** | A hidden ID Tonemap stamps on every variable it creates. It lets Update find a variable even after you rename it. |
 
-### The role set (57 roles)
+### The role set (57 roles, or 61 with optional accent)
 
-Roles include `primary`, `secondary`, `tertiary`, `error`, `warning` and `success`, their `on-*` and container pairs, and the 12 fixed roles.
+Roles include `primary`, `secondary`, `tertiary`, `error`, `warning` and `success`, their `on-*` and container pairs, and the 12 fixed roles. When the optional accent color is enabled, it adds 4 roles (`accent`, `on-accent`, `accent-container`, `on-accent-container` with tones 40/80, 100/20, 90/30, 10/90).
 
 | Fixed role | Tone (Light and Dark) |
 | --- | --- |
@@ -57,7 +57,7 @@ Roles include `primary`, `secondary`, `tertiary`, `error`, `warning` and `succes
 | `color/on-<name>-fixed` | 10 |
 | `color/on-<name>-fixed-variant` | 30 |
 
-`<name>` is `primary`, `secondary` or `tertiary`. Fixed roles took the total from 45 to 57 roles and match Material Theme Builder and the Material color library.
+`<name>` is `primary`, `secondary` or `tertiary`. Fixed roles took the total from 45 to 57 roles and match Material Theme Builder and the Material color library. With the optional accent enabled, the role count becomes 61 per mode (122 role variables; 267 total variables across primitives and roles). Without accent, the count remains 57 per mode (114 role variables; 244 total variables).
 
 ---
 
@@ -305,6 +305,15 @@ The `src/colors/` system targets `@material/material-color-utilities` pinned at 
 8. **Layout versioning and older layouts:** `m3gen_layout` is set to `"4"`. Any file with an older layout number (tagged `m3gen="1"` with layout `"3"`, `"2"`, `"1"`, or untagged) is detected by its `m3gen` tag (not by collection name). Create, Update, and Export are disabled, and the plugin displays:
    `"This file uses an older layout. Delete the primitives and color roles collections (or the older palette and color collections, in any capitalization), then click Create."`
    Nothing is deleted automatically, preserving user data and designs.
+9. **Optional accent color and non-destructive lifecycle:**
+   - **Toggle and derivation:** Below tertiary, an optional "Add accent color" toggle (off by default) allows enabling an accent key color field with a method dropdown: `complementary` (default, +180° in HCT hue from primary), `triadic` (+120°), `split complementary` (+150°), `analogous` (+30°), and `custom`. When primary changes, a non-custom accent follows it automatically. Picking a color with the picker or typing a hex switches the method to "custom".
+   - **Palette generation:** Accent is **not locked at tone 40**. Its 14-tone palette (`accent0` ... `accent100`) is built from the hue and chroma of the accent key color, with nothing replaced.
+   - **Role mappings & contrast:** Accent adds 4 roles in each of `color light` and `color dark`: `accent` (40/80), `on-accent` (100/20), `accent-container` (90/30), and `on-accent-container` (10/90), matching the tone structure of warning and success. Role names are lowercase and alias directly to the accent palette variables (`{primitives.color palettes.accent.accent*}`). Accent pairs undergo WCAG text contrast auto-fix. There are no fixed roles for accent.
+   - **Variable and token counts:**
+     - **With accent on:** 9 key colors, 136 palette variables/tokens, 61 roles in each of light and dark (122 role variables/tokens), 267 total variables.
+     - **With accent off:** 8 key colors, 122 palette variables/tokens, 57 roles in each of light and dark (114 role variables/tokens), 244 total variables (unchanged).
+   - **Create and Update non-destructive behavior:** Turning the accent on in an existing system displays its 23 variables as "added" in the change list. Turning the accent off never deletes variables; they are listed as "left unchanged" and the UI states: *"Accent variables stay in the file. Delete them by hand if you do not want them."*
+   - **Tokens export:** Accent tokens appear under `primitives > key colors > accent`, `primitives > color palettes > accent` (14 tokens), and `color roles > color light / color dark` strictly when the accent was created.
 
 ---
 

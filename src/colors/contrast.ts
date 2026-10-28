@@ -2,7 +2,13 @@ import { hexToArgb } from "./hex.js";
 import { redFromArgb, greenFromArgb, blueFromArgb } from "@material/material-color-utilities";
 import type { BuiltPalette } from "./palettes.js";
 import type { PaletteName } from "./keyColors.js";
-import { ROLE_DEFINITIONS, type RoleName, type RoleRef, type ResolvedRoles } from "./roles.js";
+import {
+  ROLE_DEFINITIONS,
+  ACCENT_ROLE_DEFINITIONS,
+  type AnyRoleName,
+  type RoleRef,
+  type ResolvedRoles,
+} from "./roles.js";
 import { paletteHex } from "./palettes.js";
 
 export const CONTRAST_THRESHOLD = 4.5;
@@ -10,8 +16,8 @@ export const CONTRAST_THRESHOLD = 4.5;
 export type Mode = "light" | "dark";
 
 export interface ContrastPair {
-  bg: RoleName;
-  fg: RoleName;
+  bg: AnyRoleName;
+  fg: AnyRoleName;
 }
 
 /** The 12 (bg, fg) pairs checked in each mode. */
@@ -43,8 +49,13 @@ export const CONTRAST_PAIRS: ContrastPair[] = [
   { bg: "tertiaryFixedDim", fg: "onTertiaryFixedVariant" },
 ];
 
+export const ACCENT_CONTRAST_PAIRS: ContrastPair[] = [
+  { bg: "accent", fg: "onAccent" },
+  { bg: "accentContainer", fg: "onAccentContainer" },
+];
+
 export interface ContrastFix {
-  role: RoleName;
+  role: AnyRoleName;
   mode: Mode;
   oldTone: number;
   newTone: number;
@@ -53,8 +64,8 @@ export interface ContrastFix {
 }
 
 export interface ContrastWarning {
-  bgRole: RoleName;
-  fgRole: RoleName;
+  bgRole: AnyRoleName;
+  fgRole: AnyRoleName;
   mode: Mode;
   contrast: number;
 }
@@ -86,30 +97,34 @@ export interface FixContrastOptions {
   enabled?: boolean;
 }
 
-function cloneRefs(): Record<RoleName, RoleRef> {
-  return JSON.parse(JSON.stringify(ROLE_DEFINITIONS)) as Record<RoleName, RoleRef>;
+function cloneRefs(includeAccent: boolean): Record<string, RoleRef> {
+  const refs: Record<string, RoleRef> = JSON.parse(JSON.stringify(ROLE_DEFINITIONS));
+  if (includeAccent) {
+    Object.assign(refs, JSON.parse(JSON.stringify(ACCENT_ROLE_DEFINITIONS)));
+  }
+  return refs;
 }
 
 function resolveWithRefs(
   palettes: Record<PaletteName, BuiltPalette>,
-  refs: Record<RoleName, RoleRef>,
+  refs: Record<string, RoleRef>,
 ): ResolvedRoles {
-  const light = {} as Record<RoleName, string>;
-  const dark = {} as Record<RoleName, string>;
-  for (const [role, ref] of Object.entries(refs) as Array<[RoleName, RoleRef]>) {
+  const light = {} as Record<string, string>;
+  const dark = {} as Record<string, string>;
+  for (const [role, ref] of Object.entries(refs) as Array<[AnyRoleName, RoleRef]>) {
     light[role] = paletteHex(palettes, ref.palette, ref.lightTone);
     dark[role] = paletteHex(palettes, ref.palette, ref.darkTone);
   }
   return { light, dark };
 }
 
-function toneOf(refs: Record<RoleName, RoleRef>, role: RoleName, mode: Mode): number {
+function toneOf(refs: Record<string, RoleRef>, role: AnyRoleName, mode: Mode): number {
   return mode === "light" ? refs[role].lightTone : refs[role].darkTone;
 }
 
 function setTone(
-  refs: Record<RoleName, RoleRef>,
-  role: RoleName,
+  refs: Record<string, RoleRef>,
+  role: AnyRoleName,
   mode: Mode,
   tone: number,
 ): void {
@@ -129,17 +144,19 @@ export function checkAndFixContrast(
   options: FixContrastOptions = {},
 ): {
   roles: ResolvedRoles;
-  roleRefs: Record<RoleName, RoleRef>;
+  roleRefs: Record<string, RoleRef>;
   fixes: ContrastFix[];
   warnings: ContrastWarning[];
 } {
   const enabled = options.enabled ?? true;
-  const refs = cloneRefs();
+  const hasAccent = Boolean(palettes.accent);
+  const refs = cloneRefs(hasAccent);
+  const pairs = hasAccent ? [...CONTRAST_PAIRS, ...ACCENT_CONTRAST_PAIRS] : CONTRAST_PAIRS;
   const fixes: ContrastFix[] = [];
   const warnings: ContrastWarning[] = [];
 
   for (const mode of ["light", "dark"] as Mode[]) {
-    for (const { bg, fg } of CONTRAST_PAIRS) {
+    for (const { bg, fg } of pairs) {
       const bgTone = toneOf(refs, bg, mode);
       const fgTone = toneOf(refs, fg, mode);
       const bgHex = paletteHex(palettes, refs[bg].palette, bgTone);

@@ -30,7 +30,7 @@ export const tertiaryToneUpRatio = (100 - exampleTertiaryHct.tone) / (100 - exam
 export const tertiaryChromaRatio = exampleTertiaryHct.chroma / examplePrimaryHct.chroma;
 export const tertiaryHueShift = exampleTertiaryHct.hue - examplePrimaryHct.hue;
 
-export type PaletteName =
+export type BasePaletteName =
   | "primary"
   | "secondary"
   | "tertiary"
@@ -39,6 +39,8 @@ export type PaletteName =
   | "error"
   | "warning"
   | "success";
+
+export type PaletteName = BasePaletteName | "accent";
 
 export type HarmonyPreset =
   | "analogous"
@@ -60,6 +62,13 @@ export type SecondaryTertiaryMode =
   | "custom"
   | HarmonyPreset;
 
+export type AccentMethod =
+  | "complementary"
+  | "triadic"
+  | "split-complementary"
+  | "analogous"
+  | "custom";
+
 export interface KeyColorInputs {
   primary: string;
   secondary?: string;
@@ -69,6 +78,8 @@ export interface KeyColorInputs {
   error?: string;
   warning?: string;
   success?: string;
+  accent?: string;
+  accentEnabled?: boolean;
 }
 
 export interface KeyColorOptions {
@@ -76,9 +87,13 @@ export interface KeyColorOptions {
   secondary?: SecondaryTertiaryMode;
   /** Default "material". A provided hex in inputs.tertiary overrides "material". */
   tertiary?: SecondaryTertiaryMode;
+  accent?: AccentMethod;
+  accentEnabled?: boolean;
 }
 
-export type ResolvedKeyColors = Record<PaletteName, string>;
+export type ResolvedKeyColors = Record<BasePaletteName, string> & {
+  accent?: string;
+};
 
 /**
  * Rotate the primary color's HCT hue by the harmony delta, or for monochromatic,
@@ -239,7 +254,7 @@ export function resolveKeyColors(
     defaults,
   );
 
-  return {
+  const resolved: ResolvedKeyColors = {
     primary,
     secondary,
     tertiary,
@@ -264,4 +279,24 @@ export function resolveKeyColors(
         ? normalizeHex(inputs.success)
         : DEFAULT_SUCCESS_HEX,
   };
+
+  const accentEnabled =
+    options.accentEnabled ??
+    inputs.accentEnabled ??
+    (inputs.accent !== undefined && inputs.accent.trim() !== "");
+
+  if (accentEnabled) {
+    const accentMethod = options.accent ?? (inputs.accent ? "custom" : "complementary");
+    if (accentMethod === "custom") {
+      if (inputs.accent && inputs.accent.trim() !== "") {
+        resolved.accent = normalizeHex(inputs.accent);
+      } else {
+        resolved.accent = harmonyKeyColor(primary, "complementary");
+      }
+    } else {
+      resolved.accent = harmonyKeyColor(primary, accentMethod);
+    }
+  }
+
+  return resolved;
 }

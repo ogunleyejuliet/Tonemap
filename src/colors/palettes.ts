@@ -142,6 +142,10 @@ export function buildPalettes(
     success: buildOne("success", keyColors.success, STANDARD_TONES),
   } as Record<PaletteName, BuiltPalette>;
 
+  if (keyColors.accent) {
+    palettes.accent = buildOne("accent", keyColors.accent, STANDARD_TONES);
+  }
+
   if (applyPrimaryLock) {
     palettes.primary.hex[40] = keyColors.primary;
   }

@@ -227,4 +227,83 @@ describe("JSON Exporter (exportSnapshotToTokensJson) - Layout Version 4", () => 
     expect(res.counts.paletteTokens).toBe(0);
     expect(res.counts.totalRoleTokens).toBe(0);
   });
+
+  it("exports accent tokens only when accent is present", () => {
+    // 1. Accent OFF (default)
+    const payloadOff = getSamplePayload();
+    const planOff = buildWritePlan(payloadOff);
+    const resOff = exportSnapshotToTokensJson(planOff);
+
+    expect(resOff.counts.keyColorTokens).toBe(8);
+    expect(resOff.counts.paletteTokens).toBe(122);
+    expect(resOff.counts.roleTokensLight).toBe(57);
+    expect(resOff.counts.roleTokensDark).toBe(57);
+    expect(resOff.counts.totalRoleTokens).toBe(114);
+
+    const primOff = resOff.jsonObject["primitives"] as Record<string, Record<string, unknown>>;
+    const rolesOff = resOff.jsonObject["color roles"] as Record<string, Record<string, unknown>>;
+    expect(primOff["key colors"]["accent"]).toBeUndefined();
+    expect(primOff["color palettes"]["accent"]).toBeUndefined();
+    expect(rolesOff["color light"]["accent"]).toBeUndefined();
+    expect(rolesOff["color dark"]["accent"]).toBeUndefined();
+
+    // 2. Accent ON
+    const sysOn = buildColorSystem(
+      { primary: "#760646", accent: "#067636", accentEnabled: true },
+      { secondary: "material", tertiary: "material", accent: "complementary", autoFixContrast: true },
+    );
+    const payloadOn = buildCreatePayload(sysOn);
+    const planOn = buildWritePlan(payloadOn);
+    const resOn = exportSnapshotToTokensJson(planOn);
+
+    expect(resOn.counts.keyColorTokens).toBe(9);
+    expect(resOn.counts.paletteTokens).toBe(136);
+    expect(resOn.counts.roleTokensLight).toBe(61);
+    expect(resOn.counts.roleTokensDark).toBe(61);
+    expect(resOn.counts.totalRoleTokens).toBe(122);
+
+    const primOn = resOn.jsonObject["primitives"] as Record<string, Record<string, unknown>>;
+    const rolesOn = resOn.jsonObject["color roles"] as Record<string, Record<string, { value: string }>>;
+
+    // Accent key color
+    expect(primOn["key colors"]["accent"]).toBeDefined();
+    expect((primOn["key colors"]["accent"] as any).type).toBe("color");
+
+    // Accent palette (14 tones)
+    expect(primOn["color palettes"]["accent"]).toBeDefined();
+    const accentPalette = primOn["color palettes"]["accent"] as Record<string, unknown>;
+    expect(Object.keys(accentPalette).length).toBe(14);
+    expect(accentPalette["accent0"]).toBeDefined();
+    expect(accentPalette["accent40"]).toBeDefined();
+    expect(accentPalette["accent100"]).toBeDefined();
+
+    // Accent roles
+    const lightRoles = rolesOn["color light"];
+    const darkRoles = rolesOn["color dark"];
+    expect(lightRoles["accent"]?.value).toBe("{primitives.color palettes.accent.accent40}");
+    expect(lightRoles["on-accent"]?.value).toBe("{primitives.color palettes.accent.accent100}");
+    expect(lightRoles["accent-container"]?.value).toBe("{primitives.color palettes.accent.accent90}");
+    expect(lightRoles["on-accent-container"]?.value).toBe("{primitives.color palettes.accent.accent10}");
+
+    expect(darkRoles["accent"]?.value).toBe("{primitives.color palettes.accent.accent80}");
+    expect(darkRoles["on-accent"]?.value).toBe("{primitives.color palettes.accent.accent20}");
+    expect(darkRoles["accent-container"]?.value).toBe("{primitives.color palettes.accent.accent30}");
+    expect(darkRoles["on-accent-container"]?.value).toBe("{primitives.color palettes.accent.accent90}");
+
+    // All role references in resOn resolve to valid primitives
+    const onRoleTokens = extractTokenPaths(rolesOn);
+    expect(onRoleTokens.length).toBe(122);
+    for (const item of onRoleTokens) {
+      const refClean = item.token.value.replace(/^\{primitives\./, "").replace(/\}$/, "");
+      const pathSegments = refClean.split(".");
+      let current: Record<string, unknown> | undefined = primOn;
+      for (const seg of pathSegments) {
+        expect(current).toBeDefined();
+        current = current![seg] as Record<string, unknown> | undefined;
+      }
+      expect(current).toBeDefined();
+      expect(current!.type).toBe("color");
+    }
+  });
 });
+

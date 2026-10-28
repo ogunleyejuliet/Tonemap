@@ -225,4 +225,93 @@ describe("variable write plan builder and validator (layout version 4, all lower
       expect(/[A-Z]/.test(aliasPlan.targetName)).toBe(false);
     }
   });
+
+  it("builds write plan with accent color on: 9 key colors, 136 palette variables, 61 roles in each of light and dark", () => {
+    const accentSystem = buildColorSystem(
+      { primary: "#6750A4" },
+      { accentEnabled: true, accent: "complementary" },
+    );
+    const accentPayload = buildCreatePayload(accentSystem);
+
+    const val = validatePayload(accentPayload);
+    expect(val.valid).toBe(true);
+
+    const plan = buildWritePlan(accentPayload);
+    expect(plan.collections.length).toBe(2);
+
+    const primitivesCol = plan.collections[0];
+    const colorRolesCol = plan.collections[1];
+
+    // Key colors: 8 base + 1 accent = 9
+    const keyColorVars = primitivesCol.variables.filter((v) => v.name.startsWith("key colors/"));
+    expect(keyColorVars.length).toBe(9);
+    const accentKey = primitivesCol.variables.find((v) => v.id === "key:accent");
+    expect(accentKey).toBeDefined();
+    expect(accentKey?.name).toBe("key colors/accent");
+
+    // Palette variables: 122 base + 14 accent = 136
+    const paletteVars = primitivesCol.variables.filter((v) => v.name.startsWith("color palettes/"));
+    expect(paletteVars.length).toBe(136);
+
+    const accentPaletteVars = primitivesCol.variables.filter((v) =>
+      v.name.startsWith("color palettes/accent/"),
+    );
+    expect(accentPaletteVars.length).toBe(14);
+    expect(primitivesCol.variables.find((v) => v.id === "palette:accent:0")?.name).toBe(
+      "color palettes/accent/accent0",
+    );
+    expect(primitivesCol.variables.find((v) => v.id === "palette:accent:40")?.name).toBe(
+      "color palettes/accent/accent40",
+    );
+    expect(primitivesCol.variables.find((v) => v.id === "palette:accent:100")?.name).toBe(
+      "color palettes/accent/accent100",
+    );
+
+    // Primitives total: 9 + 136 = 145
+    expect(primitivesCol.variables.length).toBe(145);
+
+    // Roles: 57 base + 4 accent = 61 in each mode
+    const lightRoles = colorRolesCol.variables.filter((v) => v.name.startsWith("color light/"));
+    expect(lightRoles.length).toBe(61);
+
+    const darkRoles = colorRolesCol.variables.filter((v) => v.name.startsWith("color dark/"));
+    expect(darkRoles.length).toBe(61);
+
+    // Color roles total: 61 + 61 = 122
+    expect(colorRolesCol.variables.length).toBe(122);
+
+    // Total variables across both collections: 145 + 122 = 267
+    expect(plan.totalVariables).toBe(267);
+  });
+
+  it("asserts accent roles are aliases to accent palette variables", () => {
+    const accentSystem = buildColorSystem(
+      { primary: "#6750A4" },
+      { accentEnabled: true, accent: "complementary", autoFixContrast: false },
+    );
+    const accentPayload = buildCreatePayload(accentSystem);
+    const plan = buildWritePlan(accentPayload);
+    const colorRolesCol = plan.collections[1];
+
+    const accentRoles = [
+      { role: "accent", lightExpected: "color palettes/accent/accent40", darkExpected: "color palettes/accent/accent80" },
+      { role: "onAccent", lightExpected: "color palettes/accent/accent100", darkExpected: "color palettes/accent/accent20" },
+      { role: "accentContainer", lightExpected: "color palettes/accent/accent90", darkExpected: "color palettes/accent/accent30" },
+      { role: "onAccentContainer", lightExpected: "color palettes/accent/accent10", darkExpected: "color palettes/accent/accent90" },
+    ];
+
+    for (const { role, lightExpected, darkExpected } of accentRoles) {
+      const lightVar = colorRolesCol.variables.find((v) => v.id === `role:light:${role}`);
+      expect(lightVar).toBeDefined();
+      expect(lightVar?.valuesByMode.Value.type).toBe("ALIAS");
+      const lightAlias = lightVar?.valuesByMode.Value as { type: "ALIAS"; targetId: string; targetName: string };
+      expect(lightAlias.targetName).toBe(lightExpected);
+
+      const darkVar = colorRolesCol.variables.find((v) => v.id === `role:dark:${role}`);
+      expect(darkVar).toBeDefined();
+      expect(darkVar?.valuesByMode.Value.type).toBe("ALIAS");
+      const darkAlias = darkVar?.valuesByMode.Value as { type: "ALIAS"; targetId: string; targetName: string };
+      expect(darkAlias.targetName).toBe(darkExpected);
+    }
+  });
 });

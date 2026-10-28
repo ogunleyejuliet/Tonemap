@@ -200,4 +200,68 @@ describe("compareWritePlan pure comparison tests (layout version 4)", () => {
       expect(addedIds).toContain(fixedId);
     }
   });
+
+  it("8. turning accent on in an existing system shows its variables as added in the change list", () => {
+    // Snapshot without accent (244 variables)
+    const snapshotWithoutAccent = buildSnapshotFromPlan(plan1);
+
+    // Plan with accent on (267 variables)
+    const sysWithAccent = buildColorSystem(
+      { primary: "#6750A4" },
+      { accentEnabled: true, accent: "complementary", autoFixContrast: false },
+    );
+    const valWithAccent = validatePayload(buildCreatePayload(sysWithAccent));
+    if (!valWithAccent.valid) throw new Error("Invalid valWithAccent");
+    const planWithAccent = buildWritePlan(valWithAccent.payload);
+
+    const diff = compareWritePlan(snapshotWithoutAccent, planWithAccent);
+
+    expect(diff.hasChanges).toBe(true);
+    // 1 key color + 14 palette variables + 4 light roles + 4 dark roles = 23 added
+    expect(diff.addedCount).toBe(23);
+
+    const addedIds = new Set(
+      diff.changes.filter((c) => c.type === "VARIABLE_ADDED").map((c) => c.id),
+    );
+    expect(addedIds.has("key:accent")).toBe(true);
+    expect(addedIds.has("palette:accent:0")).toBe(true);
+    expect(addedIds.has("palette:accent:40")).toBe(true);
+    expect(addedIds.has("palette:accent:100")).toBe(true);
+    expect(addedIds.has("role:light:accent")).toBe(true);
+    expect(addedIds.has("role:light:onAccent")).toBe(true);
+    expect(addedIds.has("role:dark:accentContainer")).toBe(true);
+    expect(addedIds.has("role:dark:onAccentContainer")).toBe(true);
+  });
+
+  it("9. turning accent off never deletes anything; accent variables are listed as left unchanged", () => {
+    // Existing system had accent on
+    const sysWithAccent = buildColorSystem(
+      { primary: "#6750A4" },
+      { accentEnabled: true, accent: "complementary", autoFixContrast: false },
+    );
+    const valWithAccent = validatePayload(buildCreatePayload(sysWithAccent));
+    if (!valWithAccent.valid) throw new Error("Invalid valWithAccent");
+    const planWithAccent = buildWritePlan(valWithAccent.payload);
+    const snapshotWithAccent = buildSnapshotFromPlan(planWithAccent);
+
+    // New plan with accent turned off (plan1)
+    const diff = compareWritePlan(snapshotWithAccent, plan1);
+
+    // 23 accent variables should be left unchanged (not deleted, not touched)
+    expect(diff.untouchedCount).toBe(23);
+
+    const untouchedChanges = diff.changes.filter((c) => c.type === "VARIABLE_UNTOUCHED");
+    expect(untouchedChanges.length).toBe(23);
+
+    for (const u of untouchedChanges) {
+      expect(u.formatted).toContain("(left unchanged)");
+      expect(u.id.includes("accent") || u.varName.includes("accent")).toBe(true);
+    }
+
+    const untouchedIds = new Set(untouchedChanges.map((c) => c.id));
+    expect(untouchedIds.has("key:accent")).toBe(true);
+    expect(untouchedIds.has("palette:accent:40")).toBe(true);
+    expect(untouchedIds.has("role:light:accent")).toBe(true);
+    expect(untouchedIds.has("role:dark:onAccentContainer")).toBe(true);
+  });
 });

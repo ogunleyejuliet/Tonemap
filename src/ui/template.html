@@ -61,6 +61,29 @@
       <p class="err" id="f-tertiary-hex-error"></p>
     </div>
 
+    <div class="check-row" style="margin: 10px 0;">
+      <input type="checkbox" id="f-accent-enabled">
+      <label for="f-accent-enabled">Add accent color</label>
+    </div>
+
+    <div id="accent-fields" hidden>
+      <div class="field">
+        <label for="f-accent-method">Accent method</label>
+        <select id="f-accent-method">
+          <option value="complementary">Complementary (+180)</option>
+          <option value="triadic">Triadic (+120)</option>
+          <option value="split-complementary">Split complementary (+150)</option>
+          <option value="analogous">Analogous (+30)</option>
+          <option value="custom">Custom</option>
+        </select>
+      </div>
+      <div class="field">
+        <label for="f-accent-hex">Accent hex</label>
+        <div id="cf-accent"></div>
+        <p class="err" id="f-accent-hex-error"></p>
+      </div>
+    </div>
+
     <div class="field">
       <label for="f-neutral">Neutral</label>
       <div id="cf-neutral"></div>
@@ -103,6 +126,7 @@
     <div id="update-preview-box" class="field" hidden style="margin-top: 16px; border-top: 1px solid var(--border); padding-top: 12px;">
       <h3>Update Preview</h3>
       <p class="hint" id="update-summary" style="font-weight: 600; margin-bottom: 8px;"></p>
+      <p class="hint" id="accent-untouched-note" hidden style="margin-bottom: 8px; font-weight: 500;">Accent variables stay in the file. Delete them by hand if you do not want them.</p>
       <ul class="changes" id="update-diff-list"></ul>
       <button type="button" id="f-apply" class="btn-primary" disabled style="margin-top: 12px;">Apply changes</button>
     </div>

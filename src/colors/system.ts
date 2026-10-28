@@ -13,7 +13,7 @@ import {
   type ContrastFix,
   type ContrastWarning,
 } from "./contrast.js";
-import type { RoleName, RoleRef, ResolvedRoles } from "./roles.js";
+import type { RoleRef, ResolvedRoles } from "./roles.js";
 
 export interface BuildSystemOptions extends KeyColorOptions {
   /** Default true. Set false to skip WCAG auto-fix (warnings still reported). */
@@ -30,7 +30,7 @@ export interface ColorSystem {
   secondaryMeasuredTone: number;
   secondaryWarning: string | null;
   roles: ResolvedRoles;
-  roleRefs: Record<RoleName, RoleRef>;
+  roleRefs: Record<string, RoleRef>;
   fixes: ContrastFix[];
   warnings: ContrastWarning[];
 }
@@ -54,6 +54,8 @@ export function buildColorSystem(
   const keyColors = resolveKeyColors(inputs, {
     secondary: secondaryMethod,
     tertiary: tertiaryMethod,
+    accent: options.accent,
+    accentEnabled: options.accentEnabled ?? inputs.accentEnabled,
   });
   const {
     palettes,

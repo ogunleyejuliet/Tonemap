@@ -12,7 +12,7 @@ import { buildColorSystem } from "./system.js";
 import { buildPalettes, NEUTRAL_TONES, STANDARD_TONES } from "./palettes.js";
 import { harmonyKeyColor, materialPaletteTone40, resolveKeyColors } from "./keyColors.js";
 import { ROLE_DEFINITIONS, type RoleName } from "./roles.js";
-import { contrastRatio } from "./contrast.js";
+import { contrastRatio, checkAndFixContrast } from "./contrast.js";
 import { argbToHex, hexToArgb, maxChannelDiff } from "./hex.js";
 
 const SEEDS_5 = ["#6750A4", "#00796B", "#B3261E", "#184CC3", "#7A5900"];
@@ -696,3 +696,114 @@ describe("auto-fix text contrast", () => {
     expect(off.roleRefs.onPrimary.lightTone).toBe(100);
   });
 });
+
+describe("accent color", () => {
+  it("is disabled by default and generates no accent variables or roles", () => {
+    const sys = buildColorSystem({ primary: "#6750A4" });
+    expect(sys.keyColors.accent).toBeUndefined();
+    expect(sys.palettes.accent).toBeUndefined();
+    expect(sys.roles.light.accent).toBeUndefined();
+    expect(sys.roles.dark.accent).toBeUndefined();
+    expect(sys.roleRefs.accent).toBeUndefined();
+  });
+
+  it("builds accent palette from hue and chroma of key color, NOT locked at tone 40", () => {
+    // #D8F3DC has HCT tone ~92. Primary locks tone 40 to this hex. Accent must NOT lock.
+    const sys = buildColorSystem(
+      { primary: "#6750A4", accent: "#D8F3DC", accentEnabled: true },
+      { accent: "custom" },
+    );
+    expect(sys.keyColors.accent).toBe("#D8F3DC");
+    expect(sys.palettes.accent).toBeDefined();
+    expect(sys.palettes.accent!.tones.length).toBe(14);
+    expect(sys.palettes.accent!.hex[40]).not.toBe("#D8F3DC");
+
+    // The tone 40 color has Hct tone close to 40 (standard tone generation, nothing replaced)
+    const tone40Hct = Hct.fromInt(hexToArgb(sys.palettes.accent!.hex[40]));
+    expect(tone40Hct.tone).toBeCloseTo(40, 0);
+  });
+
+  it("supports harmony methods: complementary (+180), triadic (+120), split-complementary (+150), analogous (+30)", () => {
+    const primaryHex = "#760646";
+    const primaryHct = Hct.fromInt(hexToArgb(primaryHex));
+
+    const methods = [
+      { method: "complementary" as const, angle: 180 },
+      { method: "triadic" as const, angle: 120 },
+      { method: "split-complementary" as const, angle: 150 },
+      { method: "analogous" as const, angle: 30 },
+    ];
+
+    for (const { method, angle } of methods) {
+      const keys = resolveKeyColors(
+        { primary: primaryHex, accentEnabled: true },
+        { accent: method },
+      );
+      expect(keys.accent).toBeDefined();
+      const accentHct = Hct.fromInt(hexToArgb(keys.accent!));
+      const expectedHue = (primaryHct.hue + angle) % 360;
+      const hueDiff = Math.abs(accentHct.hue - expectedHue);
+      const normalizedDiff = Math.min(hueDiff, 360 - hueDiff);
+      expect(normalizedDiff).toBeLessThan(1);
+    }
+  });
+
+  it("non-custom accent follows primary when primary changes", () => {
+    const sys1 = buildColorSystem(
+      { primary: "#760646", accentEnabled: true },
+      { accent: "complementary" },
+    );
+    const sys2 = buildColorSystem(
+      { primary: "#00796B", accentEnabled: true },
+      { accent: "complementary" },
+    );
+    expect(sys1.keyColors.accent).not.toEqual(sys2.keyColors.accent);
+  });
+
+  it("creates 4 accent roles in light and dark mode with matching tones and aliases", () => {
+    const sys = buildColorSystem(
+      { primary: "#760646", accentEnabled: true },
+      { accent: "complementary" },
+    );
+
+    // Light mode roles: accent (40), onAccent (100), accentContainer (90), onAccentContainer (10)
+    expect(sys.roles.light.accent).toBe(sys.palettes.accent!.hex[40]);
+    expect(sys.roles.light.onAccent).toBe(sys.palettes.accent!.hex[100]);
+    expect(sys.roles.light.accentContainer).toBe(sys.palettes.accent!.hex[90]);
+    expect(sys.roles.light.onAccentContainer).toBe(sys.palettes.accent!.hex[10]);
+
+    // Dark mode roles: accent (80), onAccent (20), accentContainer (30), onAccentContainer (90)
+    expect(sys.roles.dark.accent).toBe(sys.palettes.accent!.hex[80]);
+    expect(sys.roles.dark.onAccent).toBe(sys.palettes.accent!.hex[20]);
+    expect(sys.roles.dark.accentContainer).toBe(sys.palettes.accent!.hex[30]);
+    expect(sys.roles.dark.onAccentContainer).toBe(sys.palettes.accent!.hex[90]);
+
+    // Role references
+    expect(sys.roleRefs.accent).toEqual({ palette: "accent", lightTone: 40, darkTone: 80 });
+    expect(sys.roleRefs.onAccent).toEqual({ palette: "accent", lightTone: 100, darkTone: 20 });
+    expect(sys.roleRefs.accentContainer).toEqual({ palette: "accent", lightTone: 90, darkTone: 30 });
+    expect(sys.roleRefs.onAccentContainer).toEqual({ palette: "accent", lightTone: 10, darkTone: 90 });
+  });
+
+  it("applies contrast auto-fix to accent pairs", () => {
+    const keys = resolveKeyColors(
+      { primary: "#6750A4", accentEnabled: true },
+      { accent: "complementary" },
+    );
+    const { palettes } = buildPalettes(keys);
+
+    // Artificially set accent tone 40 to a light tint to simulate a low-contrast pair against onAccent (100)
+    palettes.accent.hex[40] = "#EEEEEE";
+    const result = checkAndFixContrast(palettes, { enabled: true });
+
+    const fix = result.fixes.find((f) => f.role === "onAccent" && f.mode === "light");
+    expect(fix).toBeDefined();
+    expect(fix!.oldTone).toBe(100);
+    expect(fix!.contrastBefore).toBeLessThan(4.5);
+    expect(fix!.contrastAfter).toBeGreaterThanOrEqual(4.5);
+    expect(result.roleRefs.onAccent.lightTone).toBe(fix!.newTone);
+    // Background accent tone must not move
+    expect(result.roleRefs.accent.lightTone).toBe(40);
+  });
+});
+

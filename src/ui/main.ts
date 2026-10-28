@@ -2,16 +2,16 @@ import "./styles.css";
 import { Hct } from "@material/material-color-utilities";
 import {
   CONTRAST_PAIRS,
-  ROLE_DEFINITIONS,
+  ACCENT_CONTRAST_PAIRS,
   buildColorSystem,
   checkAndFixContrast,
   contrastRatio,
   harmonyKeyColor,
   materialPaletteTone40,
   resolveKeyColors,
+  type AccentMethod,
   type ColorSystem,
   type PaletteName,
-  type RoleName,
   type SecondaryTertiaryMode,
 } from "../colors/index.js";
 import { hexToArgb } from "../colors/hex.js";
@@ -35,6 +35,7 @@ const PALETTE_LABEL: Record<PaletteName, string> = {
   error: "Error",
   warning: "Warning",
   success: "Success",
+  accent: "Accent",
 };
 
 const PALETTE_ORDER: PaletteName[] = [
@@ -67,6 +68,8 @@ interface State {
   primary: string;
   secondaryMethod: Method;
   tertiaryMethod: Method;
+  accentEnabled: boolean;
+  accentMethod: AccentMethod;
   hex: Record<Exclude<PaletteName, "primary">, string>;
   touched: Set<Exclude<PaletteName, "primary">>;
   autoFix: boolean;
@@ -76,9 +79,12 @@ const state: State = {
   primary: "#6750A4",
   secondaryMethod: "material",
   tertiaryMethod: "material",
+  accentEnabled: false,
+  accentMethod: "complementary",
   hex: {
     secondary: "",
     tertiary: "",
+    accent: "",
     neutral: "",
     neutralVariant: "",
     error: "",
@@ -92,6 +98,7 @@ const state: State = {
 const FIELD_ID: Record<Exclude<PaletteName, "primary">, string> = {
   secondary: "f-secondary-hex",
   tertiary: "f-tertiary-hex",
+  accent: "f-accent-hex",
   neutral: "f-neutral",
   neutralVariant: "f-neutral-variant",
   error: "f-error",
@@ -103,6 +110,7 @@ const MOUNT_ID: Record<PaletteName, string> = {
   primary: "cf-primary",
   secondary: "cf-secondary",
   tertiary: "cf-tertiary",
+  accent: "cf-accent",
   neutral: "cf-neutral",
   neutralVariant: "cf-neutral-variant",
   error: "cf-error",
@@ -130,6 +138,7 @@ function materialDefaults(primary: string): Record<PaletteName, string> {
     primary,
     secondary: kc.secondary,
     tertiary: kc.tertiary,
+    accent: harmonyKeyColor(primary, "complementary"),
     neutral: kc.neutral,
     neutralVariant: kc.neutralVariant,
     error: kc.error,
@@ -151,6 +160,9 @@ function refreshDerived(): void {
   } else if (state.tertiaryMethod !== "custom") {
     setHexField("tertiary", harmonyKeyColor(state.primary, state.tertiaryMethod, "tertiary"));
   }
+  if (state.accentMethod !== "custom") {
+    setHexField("accent", harmonyKeyColor(state.primary, state.accentMethod));
+  }
   (["neutral", "neutralVariant", "error", "warning", "success"] as const).forEach(
     (name) => {
       if (!state.touched.has(name)) setHexField(name, d[name]);
@@ -170,6 +182,7 @@ function currentInputs(): {
   error?: string;
   warning?: string;
   success?: string;
+  accent?: string;
 } {
   return {
     primary: state.primary,
@@ -180,6 +193,7 @@ function currentInputs(): {
     error: state.hex.error,
     warning: state.hex.warning,
     success: state.hex.success,
+    accent: state.accentEnabled ? state.hex.accent : undefined,
   };
 }
 
@@ -191,6 +205,8 @@ function render(): void {
     sys = buildColorSystem(currentInputs(), {
       secondary: state.secondaryMethod,
       tertiary: state.tertiaryMethod,
+      accent: state.accentMethod,
+      accentEnabled: state.accentEnabled,
       autoFixContrast: state.autoFix,
     });
   } catch (err) {
@@ -265,8 +281,12 @@ function swatchButton(
 function renderPalettes(sys: ColorSystem): void {
   const root = el("palettes");
   root.textContent = "";
-  for (const name of PALETTE_ORDER) {
+  const paletteOrder: PaletteName[] = sys.palettes.accent
+    ? [...PALETTE_ORDER, "accent"]
+    : PALETTE_ORDER;
+  for (const name of paletteOrder) {
     const pal = sys.palettes[name];
+    if (!pal) continue;
     const section = document.createElement("div");
     section.className = "palette";
     const h3 = document.createElement("h3");
@@ -309,7 +329,7 @@ function renderPalettes(sys: ColorSystem): void {
   }
 }
 
-function modeCell(sys: ColorSystem, role: RoleName, mode: "light" | "dark"): HTMLElement {
+function modeCell(sys: ColorSystem, role: string, mode: "light" | "dark"): HTMLElement {
   const ref = sys.roleRefs[role];
   const tone = mode === "light" ? ref.lightTone : ref.darkTone;
   const hex = mode === "light" ? sys.roles.light[role] : sys.roles.dark[role];
@@ -328,7 +348,7 @@ function modeCell(sys: ColorSystem, role: RoleName, mode: "light" | "dark"): HTM
 function renderRoles(sys: ColorSystem): void {
   const body = el("roles-body");
   body.textContent = "";
-  for (const role of Object.keys(ROLE_DEFINITIONS) as RoleName[]) {
+  for (const role of Object.keys(sys.roleRefs)) {
     const tr = document.createElement("tr");
     const name = document.createElement("td");
     name.className = "mono";
@@ -363,7 +383,8 @@ function ratioCell(ratio: number): HTMLElement {
 function renderContrast(sys: ColorSystem): void {
   const body = el("contrast-body");
   body.textContent = "";
-  for (const pair of CONTRAST_PAIRS) {
+  const pairs = sys.palettes.accent ? [...CONTRAST_PAIRS, ...ACCENT_CONTRAST_PAIRS] : CONTRAST_PAIRS;
+  for (const pair of pairs) {
     const tr = document.createElement("tr");
     const text = document.createElement("td");
     text.className = "mono";
@@ -385,14 +406,16 @@ function renderContrast(sys: ColorSystem): void {
 }
 
 function fixLine(
-  role: RoleName,
+  sys: ColorSystem,
+  role: string,
   mode: "light" | "dark",
   oldTone: number,
   newTone: number,
   before: number,
   after: number,
 ): string {
-  const palette = PALETTE_LABEL[ROLE_DEFINITIONS[role].palette];
+  const ref = sys.roleRefs[role];
+  const palette = PALETTE_LABEL[ref.palette];
   const modeLabel = mode === "light" ? "Light" : "Dark";
   return (
     `color/${kebab(role)} (${modeLabel}): ${palette}/${oldTone} changed to ` +
@@ -418,20 +441,24 @@ function renderChanges(sys: ColorSystem): void {
     }
     for (const f of sys.fixes) {
       addLine(
-        fixLine(f.role, f.mode, f.oldTone, f.newTone, f.contrastBefore, f.contrastAfter),
+        fixLine(sys, f.role, f.mode, f.oldTone, f.newTone, f.contrastBefore, f.contrastAfter),
       );
     }
     return;
   }
   heading.textContent = "Warnings (not applied)";
-  const wouldBe = checkAndFixContrast(sys.palettes, { enabled: true }).fixes;
-  if (wouldBe.length === 0) {
+  const wouldBeRes = checkAndFixContrast(sys.palettes, { enabled: true });
+  if (wouldBeRes.fixes.length === 0) {
     addLine("No text changes needed");
     return;
   }
-  for (const f of wouldBe) {
+  for (const f of wouldBeRes.fixes) {
+    const ref = wouldBeRes.roleRefs[f.role];
+    const palette = PALETTE_LABEL[ref.palette];
+    const modeLabel = f.mode === "light" ? "Light" : "Dark";
     addLine(
-      fixLine(f.role, f.mode, f.oldTone, f.newTone, f.contrastBefore, f.contrastAfter),
+      `color/${kebab(f.role)} (${modeLabel}): ${palette}/${f.oldTone} changed to ` +
+      `${palette}/${f.newTone}, contrast ${f.contrastBefore.toFixed(1)} to ${f.contrastAfter.toFixed(1)}`
     );
   }
 }
@@ -479,12 +506,35 @@ function onMethodChange(which: "secondary" | "tertiary"): void {
   scheduleRender();
 }
 
+function processAccentColorHex(hex: string): void {
+  state.hex.accent = hex;
+  state.accentMethod = "custom";
+  el<HTMLSelectElement>("f-accent-method").value = "custom";
+  scheduleRender();
+}
+
+function onAccentMethodChange(): void {
+  const sel = el<HTMLSelectElement>("f-accent-method");
+  const method = sel.value as AccentMethod;
+  state.accentMethod = method;
+  if (method !== "custom") {
+    const hex = harmonyKeyColor(state.primary, method);
+    setHexField("accent", hex);
+  }
+  scheduleRender();
+}
+
 function resetAll(): void {
   state.touched.clear();
   state.secondaryMethod = "material";
   state.tertiaryMethod = "material";
+  state.accentEnabled = false;
+  state.accentMethod = "complementary";
   el<HTMLSelectElement>("f-secondary-method").value = "material";
   el<HTMLSelectElement>("f-tertiary-method").value = "material";
+  el<HTMLInputElement>("f-accent-enabled").checked = false;
+  el("accent-fields").hidden = true;
+  el<HTMLSelectElement>("f-accent-method").value = "complementary";
   refreshDerived();
   render();
 }
@@ -503,6 +553,9 @@ function currentSavedInputs(): SavedInputs {
     warning: state.hex.warning,
     success: state.hex.success,
     autoFix: state.autoFix,
+    accentEnabled: state.accentEnabled,
+    accentMethod: state.accentMethod,
+    accentHex: state.hex.accent,
   };
 }
 
@@ -517,6 +570,14 @@ function restoreSavedInputs(saved: SavedInputs): void {
   state.tertiaryMethod = saved.tertiaryMethod;
   el<HTMLSelectElement>("f-tertiary-method").value = saved.tertiaryMethod;
   setHexField("tertiary", saved.tertiaryHex);
+
+  state.accentEnabled = saved.accentEnabled ?? false;
+  el<HTMLInputElement>("f-accent-enabled").checked = state.accentEnabled;
+  el("accent-fields").hidden = !state.accentEnabled;
+
+  state.accentMethod = saved.accentMethod ?? "complementary";
+  el<HTMLSelectElement>("f-accent-method").value = state.accentMethod;
+  setHexField("accent", saved.accentHex ?? harmonyKeyColor(saved.primary, "complementary"));
 
   state.touched.clear();
   (["neutral", "neutralVariant", "error", "warning", "success"] as const).forEach((key) => {
@@ -591,6 +652,8 @@ function onCreateClick(): void {
     const sys = buildColorSystem(currentInputs(), {
       secondary: state.secondaryMethod,
       tertiary: state.tertiaryMethod,
+      accent: state.accentMethod,
+      accentEnabled: state.accentEnabled,
       autoFixContrast: state.autoFix,
     });
 
@@ -629,6 +692,8 @@ function onUpdateClick(): void {
     const sys = buildColorSystem(currentInputs(), {
       secondary: state.secondaryMethod,
       tertiary: state.tertiaryMethod,
+      accent: state.accentMethod,
+      accentEnabled: state.accentEnabled,
       autoFixContrast: state.autoFix,
     });
 
@@ -667,6 +732,8 @@ function onApplyClick(): void {
     const sys = buildColorSystem(currentInputs(), {
       secondary: state.secondaryMethod,
       tertiary: state.tertiaryMethod,
+      accent: state.accentMethod,
+      accentEnabled: state.accentEnabled,
       autoFixContrast: state.autoFix,
     });
 
@@ -740,6 +807,16 @@ function init(): void {
   });
   el("cf-tertiary").replaceWith(colorFields.tertiary.row);
 
+  colorFields.accent = createColorField({
+    id: "f-accent-hex",
+    pickerId: "f-accent-hex-picker",
+    label: "Accent",
+    initialValue: "#000000",
+    placeholder: "#000000",
+    onValidChange: (hex) => processAccentColorHex(hex),
+  });
+  el("cf-accent").replaceWith(colorFields.accent.row);
+
   (["neutral", "neutralVariant", "error", "warning", "success"] as const).forEach((name) => {
     colorFields[name] = createColorField({
       id: FIELD_ID[name],
@@ -753,6 +830,13 @@ function init(): void {
 
   refreshDerived();
   render();
+
+  el<HTMLInputElement>("f-accent-enabled").addEventListener("change", (e) => {
+    state.accentEnabled = (e.target as HTMLInputElement).checked;
+    el("accent-fields").hidden = !state.accentEnabled;
+    scheduleRender();
+  });
+  el<HTMLSelectElement>("f-accent-method").addEventListener("change", onAccentMethodChange);
 
   el<HTMLSelectElement>("f-secondary-method").addEventListener("change", () =>
     onMethodChange("secondary"),
@@ -834,6 +918,13 @@ function init(): void {
       const diff = res.diff;
       summary.textContent = diff.summaryText;
       diffList.textContent = "";
+
+      const accentUntouchedNote = el("accent-untouched-note");
+      const hasUntouchedAccent = diff.changes.some(
+        (c: { type: string; id: string; varName: string }) =>
+          c.type === "VARIABLE_UNTOUCHED" && (c.id.includes("accent") || c.varName.includes("accent")),
+      );
+      accentUntouchedNote.hidden = !hasUntouchedAccent;
 
       if (diff.changes.length === 0) {
         const li = document.createElement("li");

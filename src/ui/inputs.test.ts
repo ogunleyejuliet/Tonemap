@@ -106,4 +106,33 @@ describe("saving and loading inputs pure functions", () => {
     const expectedDefaults = getDefaultInputs("#184CC3");
     expect(parsed.neutral).toBe(expectedDefaults.neutral);
   });
+
+  it("5. performs a full round trip including accent color inputs", () => {
+    const inputStateWithAccent: SavedInputs = {
+      version: 1,
+      primary: "#00E3AA",
+      secondaryMethod: "analogous",
+      secondaryHex: "#123456",
+      tertiaryMethod: "custom",
+      tertiaryHex: "#654321",
+      accentEnabled: true,
+      accentMethod: "split-complementary",
+      accentHex: "#FF9900",
+      neutral: "#112233",
+      neutralVariant: "#445566",
+      error: "#778899",
+      warning: "#AABBCC",
+      success: "#DDEEFF",
+      autoFix: false,
+    };
+
+    const json = serializeSavedInputs(inputStateWithAccent);
+    const parsed = parseSavedInputs(json);
+
+    expect(parsed).toEqual(inputStateWithAccent);
+    expect(parsed.accentEnabled).toBe(true);
+    expect(parsed.accentMethod).toBe("split-complementary");
+    expect(parsed.accentHex).toBe("#FF9900");
+  });
 });
+

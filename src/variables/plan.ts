@@ -1,5 +1,5 @@
 import type { PaletteName } from "../colors/keyColors.js";
-import { ROLE_DEFINITIONS, type RoleName } from "../colors/roles.js";
+import type { AnyRoleName } from "../colors/roles.js";
 import type { ColorSystem } from "../colors/system.js";
 import type {
   CreatePayload,
@@ -37,6 +37,7 @@ export const PALETTE_LABELS: Record<PaletteName, string> = {
   error: "Error",
   warning: "Warning",
   success: "Success",
+  accent: "Accent",
 };
 
 export const COLLECTION_NAMES = {
@@ -64,7 +65,7 @@ export function paletteVariableName(name: PaletteName, tone: number): string {
   return `color palettes/${paletteLabel(name)}/${palettePrefix(name)}${tone}`;
 }
 
-export function roleVariableName(mode: "light" | "dark", role: RoleName): string {
+export function roleVariableName(mode: "light" | "dark", role: AnyRoleName): string {
   return `color ${mode}/${kebab(role)}`;
 }
 
@@ -118,8 +119,28 @@ export function validatePayload(rawPayload: unknown): ValidationResult {
     }
   }
 
+  // Check accent palette if present
+  if (p.palettes.accent) {
+    const palette = p.palettes.accent;
+    if (!Array.isArray(palette.tones) || palette.tones.length === 0) {
+      return { valid: false, error: "Palette 'accent' has no tones array." };
+    }
+    if (!palette.hex || typeof palette.hex !== "object") {
+      return { valid: false, error: "Palette 'accent' has no hex mapping object." };
+    }
+    for (const tone of palette.tones) {
+      const hexVal = palette.hex[tone];
+      if (!isValidHex(hexVal)) {
+        return {
+          valid: false,
+          error: `Palette 'accent' tone ${tone} has invalid hex value '${String(hexVal)}'.`,
+        };
+      }
+    }
+  }
+
   // Check role refs
-  const roleNames = Object.keys(ROLE_DEFINITIONS) as RoleName[];
+  const roleNames = Object.keys(p.roleRefs) as AnyRoleName[];
   for (const role of roleNames) {
     const ref = p.roleRefs[role];
     if (!ref) {
@@ -164,8 +185,12 @@ export function buildWritePlan(payload: CreatePayload): WritePlan {
   const primitiveVariables: VariablePlanSpec[] = [];
   const primitiveNamesSeen = new Set<string>();
 
+  const paletteKeys: PaletteName[] = payload.palettes.accent
+    ? [...PALETTE_ORDER, "accent"]
+    : PALETTE_ORDER;
+
   // A. Key Colors
-  for (const paletteKey of PALETTE_ORDER) {
+  for (const paletteKey of paletteKeys) {
     const varName = keyColorVariableName(paletteKey);
     primitiveNamesSeen.add(varName);
 
@@ -185,7 +210,7 @@ export function buildWritePlan(payload: CreatePayload): WritePlan {
   }
 
   // B. Color Palettes
-  for (const paletteKey of PALETTE_ORDER) {
+  for (const paletteKey of paletteKeys) {
     const palette = payload.palettes[paletteKey];
 
     for (const tone of palette.tones) {
@@ -222,7 +247,7 @@ export function buildWritePlan(payload: CreatePayload): WritePlan {
   };
 
   // 2. Build "color roles" Collection Spec
-  const roleNames = Object.keys(ROLE_DEFINITIONS) as RoleName[];
+  const roleNames = Object.keys(payload.roleRefs) as AnyRoleName[];
   const roleVariables: VariablePlanSpec[] = [];
   const roleNamesSeen = new Set<string>();
 

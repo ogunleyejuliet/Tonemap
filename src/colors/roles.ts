@@ -82,24 +82,41 @@ export const ROLE_DEFINITIONS = {
   onTertiaryFixedVariant: { palette: "tertiary", lightTone: 30, darkTone: 30 },
 } as const satisfies Record<string, RoleRef>;
 
+export const ACCENT_ROLE_DEFINITIONS = {
+  accent: { palette: "accent", lightTone: 40, darkTone: 80 },
+  onAccent: { palette: "accent", lightTone: 100, darkTone: 20 },
+  accentContainer: { palette: "accent", lightTone: 90, darkTone: 30 },
+  onAccentContainer: { palette: "accent", lightTone: 10, darkTone: 90 },
+} as const satisfies Record<string, RoleRef>;
+
 export type RoleName = keyof typeof ROLE_DEFINITIONS;
+export type AccentRoleName = keyof typeof ACCENT_ROLE_DEFINITIONS;
+export type AnyRoleName = RoleName | AccentRoleName;
 
 export interface ResolvedRoles {
-  light: Record<RoleName, string>;
-  dark: Record<RoleName, string>;
+  light: Record<string, string>;
+  dark: Record<string, string>;
 }
 
 /** Resolve every role to its actual hex color per mode. */
 export function resolveRoles(
   palettes: Record<PaletteName, BuiltPalette>,
 ): ResolvedRoles {
-  const light = {} as Record<RoleName, string>;
-  const dark = {} as Record<RoleName, string>;
+  const light = {} as Record<string, string>;
+  const dark = {} as Record<string, string>;
   for (const [role, ref] of Object.entries(ROLE_DEFINITIONS) as Array<
     [RoleName, RoleRef]
   >) {
     light[role] = paletteHex(palettes, ref.palette, ref.lightTone);
     dark[role] = paletteHex(palettes, ref.palette, ref.darkTone);
+  }
+  if (palettes.accent) {
+    for (const [role, ref] of Object.entries(ACCENT_ROLE_DEFINITIONS) as Array<
+      [AccentRoleName, RoleRef]
+    >) {
+      light[role] = paletteHex(palettes, ref.palette, ref.lightTone);
+      dark[role] = paletteHex(palettes, ref.palette, ref.darkTone);
+    }
   }
   return { light, dark };
 }
