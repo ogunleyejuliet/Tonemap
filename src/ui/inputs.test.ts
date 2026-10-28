@@ -134,5 +134,36 @@ describe("saving and loading inputs pure functions", () => {
     expect(parsed.accentMethod).toBe("split-complementary");
     expect(parsed.accentHex).toBe("#FF9900");
   });
+
+  it("6. performs a full round trip including option indices", () => {
+    const inputStateWithOptions: SavedInputs = {
+      version: 1,
+      primary: "#6750A4",
+      secondaryMethod: "analogous",
+      secondaryHex: "#7D47B7",
+      secondaryOption: 2,
+      tertiaryMethod: "analogous",
+      tertiaryHex: "#4C5991",
+      tertiaryOption: 3,
+      accentEnabled: true,
+      accentMethod: "complementary",
+      accentHex: "#68A850",
+      accentOption: 1,
+      neutral: "#112233",
+      neutralVariant: "#445566",
+      error: "#778899",
+      warning: "#AABBCC",
+      success: "#DDEEFF",
+      autoFix: false,
+    };
+
+    const json = serializeSavedInputs(inputStateWithOptions);
+    const parsed = parseSavedInputs(json);
+
+    expect(parsed).toEqual(inputStateWithOptions);
+    expect(parsed.secondaryOption).toBe(2);
+    expect(parsed.tertiaryOption).toBe(3);
+    expect(parsed.accentOption).toBe(1);
+  });
 });
 

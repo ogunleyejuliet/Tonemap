@@ -53,8 +53,11 @@ export function buildColorSystem(
     options.tertiary ?? (inputs.tertiary ? "custom" : "material");
   const keyColors = resolveKeyColors(inputs, {
     secondary: secondaryMethod,
+    secondaryOption: options.secondaryOption,
     tertiary: tertiaryMethod,
+    tertiaryOption: options.tertiaryOption,
     accent: options.accent,
+    accentOption: options.accentOption,
     accentEnabled: options.accentEnabled ?? inputs.accentEnabled,
   });
   const {

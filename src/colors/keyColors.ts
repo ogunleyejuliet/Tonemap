@@ -2,33 +2,24 @@ import {
   Hct,
   SchemeTonalSpot,
   TonalPalette,
-  sanitizeDegreesDouble,
 } from "@material/material-color-utilities";
 import { argbToHex, hexToArgb, normalizeHex } from "./hex.js";
 
 export const DEFAULT_WARNING_HEX = "#FFA500";
 export const DEFAULT_SUCCESS_HEX = "#2E9E4F";
 
-/**
- * Monochromatic harmony preset parameters.
- * Derived from an example color set (Primary: #00E3AA, Secondary: #008F70, Tertiary: #75F8D2).
- * The rule was derived from this one example and can be re-tuned by changing the three example colors.
- */
-export const EXAMPLE_PRIMARY = "#00E3AA";
-export const EXAMPLE_SECONDARY = "#008F70";
-export const EXAMPLE_TERTIARY = "#75F8D2";
-
-const examplePrimaryHct = Hct.fromInt(hexToArgb(EXAMPLE_PRIMARY));
-const exampleSecondaryHct = Hct.fromInt(hexToArgb(EXAMPLE_SECONDARY));
-const exampleTertiaryHct = Hct.fromInt(hexToArgb(EXAMPLE_TERTIARY));
-
-export const secondaryToneRatio = exampleSecondaryHct.tone / examplePrimaryHct.tone;
-export const secondaryChromaRatio = exampleSecondaryHct.chroma / examplePrimaryHct.chroma;
-export const secondaryHueShift = exampleSecondaryHct.hue - examplePrimaryHct.hue;
-
-export const tertiaryToneUpRatio = (100 - exampleTertiaryHct.tone) / (100 - examplePrimaryHct.tone);
-export const tertiaryChromaRatio = exampleTertiaryHct.chroma / examplePrimaryHct.chroma;
-export const tertiaryHueShift = exampleTertiaryHct.hue - examplePrimaryHct.hue;
+export {
+  EXAMPLE_PRIMARY,
+  EXAMPLE_SECONDARY,
+  EXAMPLE_TERTIARY,
+  secondaryToneRatio,
+  secondaryChromaRatio,
+  secondaryHueShift,
+  tertiaryToneUpRatio,
+  tertiaryChromaRatio,
+  tertiaryHueShift,
+} from "./candidates.js";
+import { getCandidates } from "./candidates.js";
 
 export type BasePaletteName =
   | "primary"
@@ -85,9 +76,12 @@ export interface KeyColorInputs {
 export interface KeyColorOptions {
   /** Default "material". A provided hex in inputs.secondary overrides "material". */
   secondary?: SecondaryTertiaryMode;
+  secondaryOption?: number;
   /** Default "material". A provided hex in inputs.tertiary overrides "material". */
   tertiary?: SecondaryTertiaryMode;
+  tertiaryOption?: number;
   accent?: AccentMethod;
+  accentOption?: number;
   accentEnabled?: boolean;
 }
 
@@ -103,30 +97,16 @@ export type ResolvedKeyColors = Record<BasePaletteName, string> & {
 export function harmonyKeyColor(
   primaryHex: string,
   preset: HarmonyPreset,
-  role: "secondary" | "tertiary" = "secondary",
+  role: "secondary" | "tertiary" | "accent" = "secondary",
+  optionIndex: number = 0,
 ): string {
-  const primary = normalizeHex(primaryHex);
-  const hct = Hct.fromInt(hexToArgb(primary));
-  if (preset === "monochromatic") {
-    const h = hct.hue;
-    const C = hct.chroma;
-    const T = hct.tone;
-    if (role === "secondary") {
-      const hue = sanitizeDegreesDouble(h + secondaryHueShift);
-      const chroma = C * secondaryChromaRatio;
-      const tone = T * secondaryToneRatio;
-      return argbToHex(Hct.from(hue, chroma, tone).toInt());
-    } else {
-      const hue = sanitizeDegreesDouble(h + tertiaryHueShift);
-      const chroma = C * tertiaryChromaRatio;
-      const tone = 100 - (100 - T) * tertiaryToneUpRatio;
-      return argbToHex(Hct.from(hue, chroma, tone).toInt());
-    }
+  const candidates = getCandidates(primaryHex, preset, role);
+  if (candidates.length === 0) {
+    throw new Error(`Unknown harmony preset: "${preset}"`);
   }
-  const delta = HARMONY_DELTAS[preset];
-  if (delta === undefined) throw new Error(`Unknown harmony preset: "${preset}"`);
-  const hue = sanitizeDegreesDouble(hct.hue + delta);
-  return argbToHex(Hct.from(hue, hct.chroma, hct.tone).toInt());
+  const safeIdx =
+    ((optionIndex % candidates.length) + candidates.length) % candidates.length;
+  return candidates[safeIdx];
 }
 
 function isHarmonyPreset(mode: string): mode is HarmonyPreset {
@@ -201,6 +181,7 @@ function resolveSecondaryOrTertiary(
   inputHex: string | undefined,
   mode: SecondaryTertiaryMode | undefined,
   defaults: { secondary: string; tertiary: string },
+  optionIndex: number = 0,
 ): string {
   const fallback = which === "secondary" ? defaults.secondary : defaults.tertiary;
   if (mode === undefined || mode === "material") {
@@ -215,7 +196,8 @@ function resolveSecondaryOrTertiary(
     return normalizeHex(inputHex);
   }
   if (isHarmonyPreset(mode)) {
-    return harmonyKeyColor(primaryHex, mode, which);
+    if (inputHex !== undefined && inputHex.trim() !== "") return normalizeHex(inputHex);
+    return harmonyKeyColor(primaryHex, mode, which, optionIndex);
   }
   throw new Error(`Unknown "${which}" mode: "${mode}"`);
 }
@@ -245,6 +227,7 @@ export function resolveKeyColors(
     inputs.secondary,
     options.secondary,
     defaults,
+    options.secondaryOption ?? 0,
   );
   const tertiary = resolveSecondaryOrTertiary(
     "tertiary",
@@ -252,6 +235,7 @@ export function resolveKeyColors(
     inputs.tertiary,
     options.tertiary,
     defaults,
+    options.tertiaryOption ?? (options.tertiary === options.secondary && options.tertiary !== "monochromatic" ? 1 : 0),
   );
 
   const resolved: ResolvedKeyColors = {
@@ -291,10 +275,14 @@ export function resolveKeyColors(
       if (inputs.accent && inputs.accent.trim() !== "") {
         resolved.accent = normalizeHex(inputs.accent);
       } else {
-        resolved.accent = harmonyKeyColor(primary, "complementary");
+        resolved.accent = harmonyKeyColor(primary, "complementary", "accent", options.accentOption ?? 0);
       }
     } else {
-      resolved.accent = harmonyKeyColor(primary, accentMethod);
+      if (inputs.accent && inputs.accent.trim() !== "") {
+        resolved.accent = normalizeHex(inputs.accent);
+      } else {
+        resolved.accent = harmonyKeyColor(primary, accentMethod, "accent", options.accentOption ?? 0);
+      }
     }
   }
 

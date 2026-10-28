@@ -9,12 +9,17 @@ import {
   harmonyKeyColor,
   materialPaletteTone40,
   resolveKeyColors,
+  getCandidateCount,
+  getNextCandidateIndex,
+  getDefaultCandidateIndex,
+  isMethodCandidateSupported,
+  getCandidateHex,
   type AccentMethod,
   type ColorSystem,
   type PaletteName,
   type SecondaryTertiaryMode,
 } from "../colors/index.js";
-import { hexToArgb } from "../colors/hex.js";
+import { hexToArgb, normalizeHex } from "../colors/hex.js";
 import { buildCreatePayload } from "../variables/plan.js";
 import { createColorField, type ColorField } from "./colorField.js";
 import {
@@ -67,9 +72,12 @@ function el<T extends HTMLElement>(id: string): T {
 interface State {
   primary: string;
   secondaryMethod: Method;
+  secondaryOption: number;
   tertiaryMethod: Method;
+  tertiaryOption: number;
   accentEnabled: boolean;
   accentMethod: AccentMethod;
+  accentOption: number;
   hex: Record<Exclude<PaletteName, "primary">, string>;
   touched: Set<Exclude<PaletteName, "primary">>;
   autoFix: boolean;
@@ -78,9 +86,12 @@ interface State {
 const state: State = {
   primary: "#6750A4",
   secondaryMethod: "material",
+  secondaryOption: 0,
   tertiaryMethod: "material",
+  tertiaryOption: 1,
   accentEnabled: false,
   accentMethod: "complementary",
+  accentOption: 0,
   hex: {
     secondary: "",
     tertiary: "",
@@ -153,15 +164,24 @@ function refreshDerived(): void {
   if (state.secondaryMethod === "material") {
     setHexField("secondary", materialPaletteTone40(state.primary, "secondary"));
   } else if (state.secondaryMethod !== "custom") {
-    setHexField("secondary", harmonyKeyColor(state.primary, state.secondaryMethod, "secondary"));
+    setHexField(
+      "secondary",
+      harmonyKeyColor(state.primary, state.secondaryMethod, "secondary", state.secondaryOption),
+    );
   }
   if (state.tertiaryMethod === "material") {
     setHexField("tertiary", materialPaletteTone40(state.primary, "tertiary"));
   } else if (state.tertiaryMethod !== "custom") {
-    setHexField("tertiary", harmonyKeyColor(state.primary, state.tertiaryMethod, "tertiary"));
+    setHexField(
+      "tertiary",
+      harmonyKeyColor(state.primary, state.tertiaryMethod, "tertiary", state.tertiaryOption),
+    );
   }
   if (state.accentMethod !== "custom") {
-    setHexField("accent", harmonyKeyColor(state.primary, state.accentMethod));
+    setHexField(
+      "accent",
+      harmonyKeyColor(state.primary, state.accentMethod, "accent", state.accentOption),
+    );
   }
   (["neutral", "neutralVariant", "error", "warning", "success"] as const).forEach(
     (name) => {
@@ -171,6 +191,9 @@ function refreshDerived(): void {
   if (colorFields.primary) {
     colorFields.primary.pickerInput.value = state.primary.toLowerCase();
   }
+  updateSwitchUI("secondary");
+  updateSwitchUI("tertiary");
+  updateSwitchUI("accent");
 }
 
 function currentInputs(): {
@@ -204,8 +227,11 @@ function render(): void {
   try {
     sys = buildColorSystem(currentInputs(), {
       secondary: state.secondaryMethod,
+      secondaryOption: state.secondaryOption,
       tertiary: state.tertiaryMethod,
+      tertiaryOption: state.tertiaryOption,
       accent: state.accentMethod,
+      accentOption: state.accentOption,
       accentEnabled: state.accentEnabled,
       autoFixContrast: state.autoFix,
     });
@@ -469,6 +495,82 @@ function processPrimary(hex: string): void {
   scheduleRender();
 }
 
+function updateSwitchUI(which: "secondary" | "tertiary" | "accent"): void {
+  const field = colorFields[which];
+  if (!field) return;
+
+  const method =
+    which === "secondary"
+      ? state.secondaryMethod
+      : which === "tertiary"
+        ? state.tertiaryMethod
+        : state.accentMethod;
+
+  const isSupported = isMethodCandidateSupported(method, which);
+  if (!isSupported) {
+    field.setSwitchDisabled?.(true);
+    field.setOptionText?.("");
+    return;
+  }
+
+  const count = getCandidateCount(method, which);
+  const opt =
+    which === "secondary"
+      ? state.secondaryOption
+      : which === "tertiary"
+        ? state.tertiaryOption
+        : state.accentOption;
+
+  const displayOpt = (((opt % count) + count) % count) + 1;
+  field.setSwitchDisabled?.(false);
+  field.setOptionText?.(`option ${displayOpt} of ${count}`);
+}
+
+function onSwitchCandidate(which: "secondary" | "tertiary" | "accent"): void {
+  const method =
+    which === "secondary"
+      ? state.secondaryMethod
+      : which === "tertiary"
+        ? state.tertiaryMethod
+        : state.accentMethod;
+
+  if (!isMethodCandidateSupported(method, which)) return;
+
+  const currentIdx =
+    which === "secondary"
+      ? state.secondaryOption
+      : which === "tertiary"
+        ? state.tertiaryOption
+        : state.accentOption;
+
+  const otherHex =
+    which === "secondary"
+      ? state.hex.tertiary
+      : which === "tertiary"
+        ? state.hex.secondary
+        : undefined;
+
+  const nextIdx = getNextCandidateIndex(
+    state.primary,
+    method,
+    which,
+    currentIdx,
+    otherHex,
+  );
+
+  if (which === "secondary") state.secondaryOption = nextIdx;
+  else if (which === "tertiary") state.tertiaryOption = nextIdx;
+  else state.accentOption = nextIdx;
+
+  const nextHex = getCandidateHex(state.primary, method, nextIdx, which);
+  if (nextHex) {
+    setHexField(which, nextHex);
+  }
+
+  updateSwitchUI(which);
+  scheduleRender();
+}
+
 function processAccentHex(
   which: "secondary" | "tertiary",
   hex: string,
@@ -477,6 +579,7 @@ function processAccentHex(
   state[which === "secondary" ? "secondaryMethod" : "tertiaryMethod"] = "custom";
   el<HTMLSelectElement>(which === "secondary" ? "f-secondary-method" : "f-tertiary-method").value =
     "custom";
+  updateSwitchUI(which);
   scheduleRender();
 }
 
@@ -494,15 +597,24 @@ function onMethodChange(which: "secondary" | "tertiary"): void {
     which === "secondary" ? "f-secondary-method" : "f-tertiary-method",
   );
   const method = sel.value as Method;
-  if (which === "secondary") state.secondaryMethod = method;
-  else state.tertiaryMethod = method;
+  if (which === "secondary") {
+    state.secondaryMethod = method;
+    const otherHex = state.hex.tertiary;
+    state.secondaryOption = getDefaultCandidateIndex(state.primary, method, "secondary", otherHex);
+  } else {
+    state.tertiaryMethod = method;
+    const otherHex = state.hex.secondary;
+    state.tertiaryOption = getDefaultCandidateIndex(state.primary, method, "tertiary", otherHex);
+  }
   if (method !== "custom") {
+    const opt = which === "secondary" ? state.secondaryOption : state.tertiaryOption;
     const hex =
       method === "material"
         ? materialPaletteTone40(state.primary, which)
-        : harmonyKeyColor(state.primary, method, which);
+        : harmonyKeyColor(state.primary, method, which, opt);
     setHexField(which, hex);
   }
+  updateSwitchUI(which);
   scheduleRender();
 }
 
@@ -510,6 +622,7 @@ function processAccentColorHex(hex: string): void {
   state.hex.accent = hex;
   state.accentMethod = "custom";
   el<HTMLSelectElement>("f-accent-method").value = "custom";
+  updateSwitchUI("accent");
   scheduleRender();
 }
 
@@ -517,25 +630,33 @@ function onAccentMethodChange(): void {
   const sel = el<HTMLSelectElement>("f-accent-method");
   const method = sel.value as AccentMethod;
   state.accentMethod = method;
+  state.accentOption = 0;
   if (method !== "custom") {
-    const hex = harmonyKeyColor(state.primary, method);
+    const hex = harmonyKeyColor(state.primary, method, "accent", 0);
     setHexField("accent", hex);
   }
+  updateSwitchUI("accent");
   scheduleRender();
 }
 
 function resetAll(): void {
   state.touched.clear();
   state.secondaryMethod = "material";
+  state.secondaryOption = 0;
   state.tertiaryMethod = "material";
+  state.tertiaryOption = 1;
   state.accentEnabled = false;
   state.accentMethod = "complementary";
+  state.accentOption = 0;
   el<HTMLSelectElement>("f-secondary-method").value = "material";
   el<HTMLSelectElement>("f-tertiary-method").value = "material";
   el<HTMLInputElement>("f-accent-enabled").checked = false;
   el("accent-fields").hidden = true;
   el<HTMLSelectElement>("f-accent-method").value = "complementary";
   refreshDerived();
+  updateSwitchUI("secondary");
+  updateSwitchUI("tertiary");
+  updateSwitchUI("accent");
   render();
 }
 
@@ -545,8 +666,10 @@ function currentSavedInputs(): SavedInputs {
     primary: state.primary,
     secondaryMethod: state.secondaryMethod,
     secondaryHex: state.hex.secondary,
+    secondaryOption: state.secondaryOption,
     tertiaryMethod: state.tertiaryMethod,
     tertiaryHex: state.hex.tertiary,
+    tertiaryOption: state.tertiaryOption,
     neutral: state.hex.neutral,
     neutralVariant: state.hex.neutralVariant,
     error: state.hex.error,
@@ -556,6 +679,7 @@ function currentSavedInputs(): SavedInputs {
     accentEnabled: state.accentEnabled,
     accentMethod: state.accentMethod,
     accentHex: state.hex.accent,
+    accentOption: state.accentOption,
   };
 }
 
@@ -563,21 +687,73 @@ function restoreSavedInputs(saved: SavedInputs): void {
   state.primary = saved.primary;
   colorFields.primary?.setValue(saved.primary);
 
-  state.secondaryMethod = saved.secondaryMethod;
-  el<HTMLSelectElement>("f-secondary-method").value = saved.secondaryMethod;
   setHexField("secondary", saved.secondaryHex);
+  const secOpt = saved.secondaryOption ?? 0;
+  state.secondaryOption = secOpt;
+  if (saved.secondaryMethod === "custom") {
+    state.secondaryMethod = "custom";
+  } else if (saved.secondaryMethod === "material") {
+    const expected = materialPaletteTone40(saved.primary, "secondary");
+    if (normalizeHex(saved.secondaryHex).toUpperCase() === normalizeHex(expected).toUpperCase()) {
+      state.secondaryMethod = "material";
+    } else {
+      state.secondaryMethod = "custom";
+    }
+  } else {
+    const expected = getCandidateHex(saved.primary, saved.secondaryMethod, secOpt, "secondary");
+    if (expected && normalizeHex(saved.secondaryHex).toUpperCase() === normalizeHex(expected).toUpperCase()) {
+      state.secondaryMethod = saved.secondaryMethod;
+    } else {
+      state.secondaryMethod = "custom";
+    }
+  }
+  el<HTMLSelectElement>("f-secondary-method").value = state.secondaryMethod;
 
-  state.tertiaryMethod = saved.tertiaryMethod;
-  el<HTMLSelectElement>("f-tertiary-method").value = saved.tertiaryMethod;
   setHexField("tertiary", saved.tertiaryHex);
+  const tertOpt =
+    saved.tertiaryOption ??
+    getDefaultCandidateIndex(saved.primary, saved.tertiaryMethod, "tertiary", saved.secondaryHex);
+  state.tertiaryOption = tertOpt;
+  if (saved.tertiaryMethod === "custom") {
+    state.tertiaryMethod = "custom";
+  } else if (saved.tertiaryMethod === "material") {
+    const expected = materialPaletteTone40(saved.primary, "tertiary");
+    if (normalizeHex(saved.tertiaryHex).toUpperCase() === normalizeHex(expected).toUpperCase()) {
+      state.tertiaryMethod = "material";
+    } else {
+      state.tertiaryMethod = "custom";
+    }
+  } else {
+    const expected = getCandidateHex(saved.primary, saved.tertiaryMethod, tertOpt, "tertiary");
+    if (expected && normalizeHex(saved.tertiaryHex).toUpperCase() === normalizeHex(expected).toUpperCase()) {
+      state.tertiaryMethod = saved.tertiaryMethod;
+    } else {
+      state.tertiaryMethod = "custom";
+    }
+  }
+  el<HTMLSelectElement>("f-tertiary-method").value = state.tertiaryMethod;
 
   state.accentEnabled = saved.accentEnabled ?? false;
   el<HTMLInputElement>("f-accent-enabled").checked = state.accentEnabled;
   el("accent-fields").hidden = !state.accentEnabled;
 
-  state.accentMethod = saved.accentMethod ?? "complementary";
+  const defaultAccentHex = harmonyKeyColor(saved.primary, "complementary", "accent", 0);
+  const accentHex = saved.accentHex ?? defaultAccentHex;
+  setHexField("accent", accentHex);
+  const accMethod = saved.accentMethod ?? "complementary";
+  const accOpt = saved.accentOption ?? 0;
+  state.accentOption = accOpt;
+  if (accMethod === "custom") {
+    state.accentMethod = "custom";
+  } else {
+    const expected = getCandidateHex(saved.primary, accMethod, accOpt, "accent");
+    if (expected && normalizeHex(accentHex).toUpperCase() === normalizeHex(expected).toUpperCase()) {
+      state.accentMethod = accMethod;
+    } else {
+      state.accentMethod = "custom";
+    }
+  }
   el<HTMLSelectElement>("f-accent-method").value = state.accentMethod;
-  setHexField("accent", saved.accentHex ?? harmonyKeyColor(saved.primary, "complementary"));
 
   state.touched.clear();
   (["neutral", "neutralVariant", "error", "warning", "success"] as const).forEach((key) => {
@@ -588,7 +764,9 @@ function restoreSavedInputs(saved: SavedInputs): void {
   state.autoFix = saved.autoFix;
   el<HTMLInputElement>("f-autofix").checked = saved.autoFix;
 
-  refreshDerived();
+  updateSwitchUI("secondary");
+  updateSwitchUI("tertiary");
+  updateSwitchUI("accent");
   render();
 }
 
@@ -651,8 +829,11 @@ function onCreateClick(): void {
   try {
     const sys = buildColorSystem(currentInputs(), {
       secondary: state.secondaryMethod,
+      secondaryOption: state.secondaryOption,
       tertiary: state.tertiaryMethod,
+      tertiaryOption: state.tertiaryOption,
       accent: state.accentMethod,
+      accentOption: state.accentOption,
       accentEnabled: state.accentEnabled,
       autoFixContrast: state.autoFix,
     });
@@ -691,8 +872,11 @@ function onUpdateClick(): void {
   try {
     const sys = buildColorSystem(currentInputs(), {
       secondary: state.secondaryMethod,
+      secondaryOption: state.secondaryOption,
       tertiary: state.tertiaryMethod,
+      tertiaryOption: state.tertiaryOption,
       accent: state.accentMethod,
+      accentOption: state.accentOption,
       accentEnabled: state.accentEnabled,
       autoFixContrast: state.autoFix,
     });
@@ -731,8 +915,11 @@ function onApplyClick(): void {
   try {
     const sys = buildColorSystem(currentInputs(), {
       secondary: state.secondaryMethod,
+      secondaryOption: state.secondaryOption,
       tertiary: state.tertiaryMethod,
+      tertiaryOption: state.tertiaryOption,
       accent: state.accentMethod,
+      accentOption: state.accentOption,
       accentEnabled: state.accentEnabled,
       autoFixContrast: state.autoFix,
     });
@@ -794,6 +981,9 @@ function init(): void {
     initialValue: "#000000",
     placeholder: "#000000",
     onValidChange: (hex) => processAccentHex("secondary", hex),
+    hasSwitch: true,
+    onSwitch: () => onSwitchCandidate("secondary"),
+    switchLabel: "Next color for Secondary",
   });
   el("cf-secondary").replaceWith(colorFields.secondary.row);
 
@@ -804,6 +994,9 @@ function init(): void {
     initialValue: "#000000",
     placeholder: "#000000",
     onValidChange: (hex) => processAccentHex("tertiary", hex),
+    hasSwitch: true,
+    onSwitch: () => onSwitchCandidate("tertiary"),
+    switchLabel: "Next color for Tertiary",
   });
   el("cf-tertiary").replaceWith(colorFields.tertiary.row);
 
@@ -814,6 +1007,9 @@ function init(): void {
     initialValue: "#000000",
     placeholder: "#000000",
     onValidChange: (hex) => processAccentColorHex(hex),
+    hasSwitch: true,
+    onSwitch: () => onSwitchCandidate("accent"),
+    switchLabel: "Next color for Accent",
   });
   el("cf-accent").replaceWith(colorFields.accent.row);
 

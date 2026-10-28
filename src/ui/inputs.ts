@@ -15,8 +15,10 @@ export interface SavedInputs {
   primary: string;
   secondaryMethod: Method;
   secondaryHex: string;
+  secondaryOption?: number;
   tertiaryMethod: Method;
   tertiaryHex: string;
+  tertiaryOption?: number;
   neutral: string;
   neutralVariant: string;
   error: string;
@@ -26,6 +28,7 @@ export interface SavedInputs {
   accentEnabled?: boolean;
   accentMethod?: AccentMethod;
   accentHex?: string;
+  accentOption?: number;
 }
 
 export interface ActionButtonState {
@@ -135,6 +138,12 @@ export function serializeSavedInputs(inputs: Partial<SavedInputs>): string {
     success: parseHexField(inputs.success ?? "") ?? defaults.success,
     autoFix: typeof inputs.autoFix === "boolean" ? inputs.autoFix : defaults.autoFix,
   };
+  if (typeof inputs.secondaryOption === "number") {
+    data.secondaryOption = inputs.secondaryOption;
+  }
+  if (typeof inputs.tertiaryOption === "number") {
+    data.tertiaryOption = inputs.tertiaryOption;
+  }
   if (typeof inputs.accentEnabled === "boolean") {
     data.accentEnabled = inputs.accentEnabled;
   }
@@ -143,6 +152,9 @@ export function serializeSavedInputs(inputs: Partial<SavedInputs>): string {
   }
   if (inputs.accentHex !== undefined) {
     data.accentHex = parseHexField(inputs.accentHex ?? "") ?? defaults.accentHex;
+  }
+  if (typeof inputs.accentOption === "number") {
+    data.accentOption = inputs.accentOption;
   }
   return JSON.stringify(data);
 }
@@ -201,6 +213,12 @@ export function parseSavedInputs(raw: unknown): SavedInputs {
     autoFix,
   };
 
+  if (typeof obj.secondaryOption === "number") {
+    result.secondaryOption = obj.secondaryOption;
+  }
+  if (typeof obj.tertiaryOption === "number") {
+    result.tertiaryOption = obj.tertiaryOption;
+  }
   if (typeof obj.accentEnabled === "boolean") {
     result.accentEnabled = obj.accentEnabled;
   }
@@ -209,6 +227,9 @@ export function parseSavedInputs(raw: unknown): SavedInputs {
   }
   if (typeof obj.accentHex === "string") {
     result.accentHex = parseHexField(obj.accentHex) ?? defaults.accentHex;
+  }
+  if (typeof obj.accentOption === "number") {
+    result.accentOption = obj.accentOption;
   }
 
   return result;

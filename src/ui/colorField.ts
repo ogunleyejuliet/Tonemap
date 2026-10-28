@@ -21,6 +21,12 @@ export interface ColorFieldOptions {
   errorEl?: HTMLElement | null;
   /** Callback fired whenever the field resolves to a new valid canonical hex */
   onValidChange?: (canonicalHex: string) => void;
+  /** Whether to show a switch/shuffle icon button beside the swatch */
+  hasSwitch?: boolean;
+  /** Callback fired when the switch button is clicked */
+  onSwitch?: () => void;
+  /** Accessible label for the switch button */
+  switchLabel?: string;
 }
 
 export interface ColorField {
@@ -28,6 +34,10 @@ export interface ColorField {
   container: HTMLDivElement;
   textInput: HTMLInputElement;
   pickerInput: HTMLInputElement;
+  switchBtn?: HTMLButtonElement;
+  optionIndicator?: HTMLSpanElement;
+  setOptionText?: (text: string) => void;
+  setSwitchDisabled?: (disabled: boolean) => void;
   getValue: () => string;
   setValue: (hex: string) => void;
   setError: (msg: string) => void;
@@ -100,6 +110,47 @@ export function createColorField(options: ColorFieldOptions): ColorField {
     options.onValidChange?.(canonical);
   });
 
+  let switchBtn: HTMLButtonElement | undefined;
+  let optionIndicator: HTMLSpanElement | undefined;
+
+  if (options.hasSwitch) {
+    switchBtn = document.createElement("button");
+    switchBtn.type = "button";
+    switchBtn.className = "btn-switch";
+    switchBtn.id = `${options.id}-switch`;
+    switchBtn.title = "Next color";
+    switchBtn.setAttribute(
+      "aria-label",
+      options.switchLabel ?? `Next color for ${options.label}`,
+    );
+    switchBtn.innerHTML =
+      `<svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">` +
+      `<path d="M13.5 8A5.5 5.5 0 1 1 12 4.1L13.5 2.5V6.5H9.5"/>` +
+      `<polyline points="9.5 6.5 13.5 6.5 13.5 2.5"/>` +
+      `</svg>`;
+
+    switchBtn.addEventListener("click", () => {
+      options.onSwitch?.();
+    });
+
+    optionIndicator = document.createElement("span");
+    optionIndicator.className = "option-indicator";
+    optionIndicator.id = `${options.id}-option`;
+    optionIndicator.setAttribute("aria-live", "polite");
+  }
+
+  const setOptionText = (text: string): void => {
+    if (optionIndicator) {
+      optionIndicator.textContent = text;
+    }
+  };
+
+  const setSwitchDisabled = (disabled: boolean): void => {
+    if (switchBtn) {
+      switchBtn.disabled = disabled;
+    }
+  };
+
   const setValue = (hex: string): void => {
     const parsed = parseHexInput(hex);
     if (parsed !== null) {
@@ -117,12 +168,22 @@ export function createColorField(options: ColorFieldOptions): ColorField {
 
   row.appendChild(textInput);
   row.appendChild(pickerInput);
+  if (switchBtn) {
+    row.appendChild(switchBtn);
+  }
+  if (optionIndicator) {
+    row.appendChild(optionIndicator);
+  }
 
   return {
     row,
     container: row,
     textInput,
     pickerInput,
+    switchBtn,
+    optionIndicator,
+    setOptionText,
+    setSwitchDisabled,
     getValue,
     setValue,
     setError,
